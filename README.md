@@ -55,6 +55,8 @@ dev_inject_plugin /root/dsh-routing-suite/workspace-browser
 
 ```bash
 dsh plugin --profile demo add ./dsh-external-workspace-browser-0.1.0.tgz
+# 或从 GitHub 安装
+dsh plugin --profile demo add github:supengpeng/dsh-workspace-browser#v0.1.0
 ```
 
 ## 使用示例
