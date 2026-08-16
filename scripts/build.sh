@@ -53,8 +53,9 @@ link_pkg @deepseek-ai/schemastery vendor/schemastery
 link_pkg @deepseek-ai/dsh-tools packages/core/tools
 link_pkg @deepseek-ai/dsh-llm packages/llm/llm
 link_pkg @deepseek-ai/dsh-system-prompt packages/core/system-prompt
-# @types/node（编译类型；checkout 自带）
+# @types/node + @types/react（编译类型；checkout 自带）
 link_pkg @types/node node_modules/@types/node
+link_pkg @types/react node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react
 
 STD_SCHEMA=$(find "$CHECKOUT/node_modules/.pnpm" -maxdepth 1 -type d -iname '@standard-schema+spec@*' 2>/dev/null | head -1)
 if [ -n "$STD_SCHEMA" ]; then

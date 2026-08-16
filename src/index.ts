@@ -12,12 +12,13 @@
  * 不直接触碰 Node fs，因此远程/沙箱后端同样可用。注册挂在 `ctx.effect` 上，
  * 插件卸载或 HMR 时自动注销。
  */
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
 
 export const name = '@dsh-external/workspace-browser'
-export const inject = ['tools', 'fs']
+export const inject = ['tools', 'fs', 'webServer']
 
 /** `ctx.fs` 的结构化最小视图（完整契约见 @deepseek-ai/dsh-fs）。 */
 interface FsTarget {
@@ -38,7 +39,23 @@ interface FsService {
   contains(parent: FsTarget, child: FsTarget): boolean
 }
 
-type AppContext = Context & { fs: FsService }
+interface WebServerService {
+  register(route: {
+    kind: 'prefix' | 'exact'
+    path: string
+    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
+  }): () => void
+}
+
+interface SessionHeader {
+  cwd?: string
+}
+
+interface SessionsService {
+  get(id: string): { header: SessionHeader } | undefined
+}
+
+type AppContext = Context & { fs: FsService; webServer: WebServerService }
 
 /** 递归收集时的共享状态，用于全局条目上限与目录环检测。 */
 interface CollectState {
@@ -112,9 +129,47 @@ function sessionRoot(exec: { agent?: { session?: { header?: { cwd?: string } } }
   return exec.agent?.session?.header?.cwd
 }
 
+/** 按 sessionId 读取会话工作区根；会话不存在或无 cwd 时返回 undefined。 */
+function sessionCwdById(ctx: AppContext, sessionId: string): string | undefined {
+  const sessions = ctx.get('sessions') as SessionsService | undefined
+  return sessions?.get(sessionId)?.header.cwd
+}
+
+/** 解析 HTTP 查询参数中的布尔值。 */
+function parseBool(value: string | null, fallback: boolean): boolean {
+  if (value === null) return fallback
+  return value === 'true' || value === '1'
+}
+
 /** 判断名称是否为隐藏条目（`.` 开头）。 */
 function isHidden(name: string): boolean {
   return name.startsWith('.')
+}
+
+/**
+ * 解析并校验目录列表请求，返回目标 target 与是否发生截断。
+ * 供工具执行和 HTTP API 共用。
+ */
+async function resolveListTarget(
+  ctx: AppContext,
+  root: string | undefined,
+  path: string,
+  allowOutsideRoot: boolean,
+  signal: AbortSignal,
+): Promise<FsTarget> {
+  const resolveOptions = {
+    ...root !== undefined ? { cwd: root } : {},
+    signal,
+  }
+  const target = await ctx.fs.resolve(path, resolveOptions)
+
+  if (!allowOutsideRoot && root !== undefined) {
+    const rootTarget = await ctx.fs.resolve(root, { signal })
+    if (!ctx.fs.contains(rootTarget, target)) {
+      throw new Error(`path "${target.displayPath}" is outside the workspace root "${rootTarget.displayPath}"`)
+    }
+  }
+  return target
 }
 
 /**
@@ -165,11 +220,82 @@ async function collectEntries(
 }
 
 /**
+ * 注册 Web UI 使用的目录列表 HTTP API。
+ * @param ctx - 插件上下文；`webServer` 已就绪。
+ * @param config - 插件配置。
+ */
+function applyWorkspaceBrowserApi(ctx: AppContext, config: Config): void {
+  const API_PREFIX = '/workspace-browser/api'
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'prefix',
+    path: API_PREFIX,
+    handler: async (req, res) => {
+      const url = new URL(req.url ?? '/', 'http://localhost')
+      const pathname = url.pathname.replace(/^\/workspace-browser\/api/, '') || '/'
+      const send = (code: number, obj: unknown): void => {
+        res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify(obj))
+      }
+      try {
+        if (req.method !== 'GET' || pathname !== '/list') {
+          return send(404, { ok: false, error: `not found: ${req.method ?? 'GET'} ${pathname}` })
+        }
+
+        const sessionId = url.searchParams.get('sessionId') ?? ''
+        const cwd = sessionId ? sessionCwdById(ctx, sessionId) : undefined
+        const root = config.root || cwd
+        const path = parsePath(url.searchParams.get('path') ?? undefined)
+        const rawMaxEntries = url.searchParams.get('max_entries')
+        const maxEntries = rawMaxEntries === null
+          ? config.maxEntries
+          : parseMaxEntries(Number(rawMaxEntries), config.maxEntries, config.maxEntries)
+        const recursive = parseBool(url.searchParams.get('recursive'), false)
+        const rawMaxDepth = url.searchParams.get('max_depth')
+        const maxDepth = recursive
+          ? rawMaxDepth === null
+            ? config.maxDepth
+            : parseMaxDepth(Number(rawMaxDepth), config.maxDepth, config.maxDepth)
+          : 0
+        const includeHidden = parseBool(url.searchParams.get('include_hidden'), config.showHidden)
+        const signal = new AbortController().signal
+
+        const target = await resolveListTarget(ctx, root, path, config.allowOutsideRoot, signal)
+        const state: CollectState = {
+          remaining: maxEntries,
+          truncated: false,
+          visited: new Set([target.targetKey]),
+        }
+        const entries = await collectEntries(
+          ctx,
+          target,
+          0,
+          maxDepth,
+          includeHidden,
+          signal,
+          state,
+        )
+        return send(200, {
+          ok: true,
+          cwd: root ?? null,
+          path: target.displayPath,
+          entries,
+          truncated: state.truncated,
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return send(400, { ok: false, error: message })
+      }
+    },
+  }), '@dsh-external/workspace-browser: api')
+}
+
+/**
  * 注册 `list_workspace` 工具。
  * @param ctx - 插件上下文；`tools` 与 `fs` 已就绪。
  * @param config - 插件配置（schemastery 已填默认值）。
  */
 export function apply(ctx: AppContext, config: Config): void {
+  applyWorkspaceBrowserApi(ctx, config)
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'list_workspace',
     description: 'List directories and files in the current workspace. Omit path to list the workspace root; pass a relative path to browse into a subdirectory. Use recursive to include nested directories and include_hidden to show dotfiles.',
@@ -227,18 +353,7 @@ export function apply(ctx: AppContext, config: Config): void {
       const includeHidden = args.include_hidden ?? config.showHidden
       const cwd = sessionRoot(exec)
       const root = config.root || cwd
-      const resolveOptions = {
-        ...root !== undefined ? { cwd: root } : {},
-        signal: exec.signal,
-      }
-      const target = await ctx.fs.resolve(path, resolveOptions)
-
-      if (!config.allowOutsideRoot && root !== undefined) {
-        const rootTarget = await ctx.fs.resolve(root, { signal: exec.signal })
-        if (!ctx.fs.contains(rootTarget, target)) {
-          throw new Error(`path "${target.displayPath}" is outside the workspace root "${rootTarget.displayPath}"`)
-        }
-      }
+      const target = await resolveListTarget(ctx, root, path, config.allowOutsideRoot, exec.signal)
 
       const state: CollectState = {
         remaining: maxEntries,

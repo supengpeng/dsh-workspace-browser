@@ -1,8 +1,17 @@
 # @dsh-external/workspace-browser
 
-DeepSeek Harness 插件：让模型浏览当前工作区文件夹的目录结构与文件列表。
+DeepSeek Harness 插件：在 Web UI 中浏览当前工作区文件夹的目录结构与文件列表，同时提供模型可见工具 `list_workspace`。
 
 ## 功能
+
+### Web UI 文件浏览
+
+- 会话输入框上方显示“工作区文件”面板；
+- 默认列出当前会话工作区根目录；
+- 点击目录可继续向下浏览，提供“返回根目录”按钮；
+- 通过宿主 HTTP API `/workspace-browser/api/list` 读取目录，使用 `ctx.fs`，与模型工具共用同一套目录解析逻辑。
+
+### 模型工具
 
 注册一个模型可见工具 `list_workspace`：
 
@@ -54,9 +63,9 @@ dev_inject_plugin /root/dsh-routing-suite/workspace-browser
 也可以作为 bundle 安装到 profile：
 
 ```bash
-dsh plugin --profile demo add ./dsh-external-workspace-browser-0.1.0.tgz
+dsh plugin --profile demo add ./dsh-external-workspace-browser-0.2.0.tgz
 # 或从 GitHub 安装
-dsh plugin --profile demo add github:supengpeng/dsh-workspace-browser#v0.1.0
+dsh plugin --profile demo add github:supengpeng/dsh-workspace-browser#v0.2.0
 ```
 
 ## 使用示例
