@@ -1,8 +1,8 @@
 /**
  * @dsh-external/workspace-browser — Web UI 半。
  *
- * 在会话输入框上方注册一个“工作区文件”dock：显示当前会话工作区根目录，
- * 点击目录可继续向下浏览，返回根目录按钮回到工作区根。
+ * 在侧边栏 `sidebar.files` 注册“工作区文件”面板：显示当前会话工作区根目录，
+ * 点击目录继续向下浏览，提供“返回根目录”按钮。
  * 数据来自宿主 HTTP API `/workspace-browser/api/list`。
  */
 import React, { useCallback, useEffect, useState } from 'react'
@@ -20,8 +20,23 @@ type ClientContext = {
   effect(callback: () => unknown, label?: string): unknown
 }
 
-interface DockProps {
-  sessionId: string
+/** useSessions 返回状态的最小视图（完整类型见 @deepseek-ai/dsh-client-runtime/client）。 */
+interface SessionSummary {
+  id: string
+  cwd?: string
+}
+
+interface SessionListState {
+  current?: string
+  byId: Record<string, SessionSummary>
+}
+
+type UseSessions = <T>(selector: (state: SessionListState) => T) => T
+
+interface SidebarFilesProps {
+  wide: boolean
+  expandSidebar: () => void
+  useSessions: UseSessions
 }
 
 interface WorkspaceEntry {
@@ -47,16 +62,18 @@ const fmtBytes = (size: number): string =>
     : size >= 1024 ? `${(size / 1024).toFixed(1)} KB`
       : `${size} B`
 
-function WorkspaceBrowserDock(ctx: ClientContext, props: DockProps): React.ReactElement {
-  const { sessionId } = props
+function WorkspaceFileBrowser(props: SidebarFilesProps): React.ReactElement {
+  const { useSessions } = props
+  const list = useSessions(state => state)
+  const sessionId = list.current
   const [rootPath, setRootPath] = useState<string | null>(null)
   const [currentPath, setCurrentPath] = useState<string | null>(null)
   const [entries, setEntries] = useState<WorkspaceEntry[]>([])
-  const [expanded, setExpanded] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const load = useCallback(async (path?: string): Promise<void> => {
+    if (sessionId === undefined) return
     setLoading(true)
     setError('')
     try {
@@ -78,47 +95,22 @@ function WorkspaceBrowserDock(ctx: ClientContext, props: DockProps): React.React
   }, [sessionId])
 
   useEffect(() => {
+    setRootPath(null)
+    setCurrentPath(null)
+    setEntries([])
     void load()
   }, [load])
 
-  const rowStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '4px 10px',
-    fontSize: 12,
-    lineHeight: 1.6,
-    color: 'var(--dsw-alias-label-primary, #ddd)',
-    background: 'var(--dsw-alias-bg-base, #14161a)',
-    border: '1px solid var(--dsw-alias-border-l1, #333)',
-    borderRadius: 8,
-  }
   const panelStyle: React.CSSProperties = {
-    margin: '4px 10px 8px',
     padding: '8px 10px',
-    maxHeight: 240,
-    overflow: 'auto',
     fontSize: 12,
     lineHeight: 1.7,
     color: 'var(--dsw-alias-label-primary, #ddd)',
-    background: 'var(--dsw-alias-bg-base, #14161a)',
-    border: '1px solid var(--dsw-alias-border-l1, #333)',
-    borderRadius: 8,
   }
-  const buttonStyle: React.CSSProperties = {
-    background: 'var(--dsw-alias-brand-primary, #4a9eff)',
-    color: 'var(--dsw-alias-brand-primary-invert, #fff)',
-    border: 'none',
-    borderRadius: 6,
-    padding: '2px 8px',
-    fontSize: 12,
-    cursor: 'pointer',
-  }
-  const ghostButtonStyle: React.CSSProperties = {
-    ...buttonStyle,
-    background: 'transparent',
-    border: '1px solid var(--dsw-alias-border-l2, #444)',
-    color: 'var(--dsw-alias-label-primary, #ccc)',
+  const headerStyle: React.CSSProperties = {
+    fontWeight: 600,
+    marginBottom: 4,
+    color: 'var(--dsw-alias-label-primary, #ddd)',
   }
   const pathStyle: React.CSSProperties = {
     color: 'var(--dsw-alias-label-dimmed, #888)',
@@ -126,63 +118,71 @@ function WorkspaceBrowserDock(ctx: ClientContext, props: DockProps): React.React
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
   }
+  const ghostButtonStyle: React.CSSProperties = {
+    background: 'transparent',
+    border: '1px solid var(--dsw-alias-border-l2, #444)',
+    color: 'var(--dsw-alias-label-primary, #ccc)',
+    borderRadius: 6,
+    padding: '1px 6px',
+    fontSize: 12,
+    cursor: 'pointer',
+  }
+
+  if (sessionId === undefined) {
+    return (
+      <div style={panelStyle}>
+        <div style={headerStyle}>📁 工作区文件</div>
+        <div style={pathStyle}>当前没有会话</div>
+      </div>
+    )
+  }
 
   return (
-    <div>
-      <div style={rowStyle}>
-        <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>📁 工作区文件</span>
-        <button style={buttonStyle} onClick={() => setExpanded(value => !value)} disabled={loading}>
-          {expanded ? '收起' : '展开'}
-        </button>
-        {currentPath !== null && (
-          <span style={{ ...pathStyle, flex: 1 }} title={currentPath}>{currentPath}</span>
+    <div style={panelStyle}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <span style={headerStyle}>📁 工作区文件</span>
+        {rootPath !== null && currentPath !== null && currentPath !== rootPath && (
+          <button style={ghostButtonStyle} onClick={() => void load(rootPath)}>⬆ 根目录</button>
         )}
-        {loading && <span style={pathStyle}>加载中…</span>}
-        {error !== '' && <span style={{ color: '#e5534b' }}>{error}</span>}
       </div>
-      {expanded && (
-        <div style={panelStyle}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-            <span style={{ ...pathStyle, flex: 1 }}>{currentPath ?? '加载中…'}</span>
-            {rootPath !== null && currentPath !== null && currentPath !== rootPath && (
-              <button style={ghostButtonStyle} onClick={() => void load(rootPath)}>⬆ 根目录</button>
-            )}
-          </div>
-          {entries.length === 0 && !loading && <div style={pathStyle}>(空目录)</div>}
-          {entries.map(entry => (
-            <div key={entry.path} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {entry.type === 'directory' ? (
-                <button
-                  style={{ ...ghostButtonStyle, border: 'none', padding: 0 }}
-                  onClick={() => void load(entry.path)}
-                >
-                  📁 {entry.name}/
-                </button>
-              ) : (
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  📄 {entry.name}
-                  {entry.size !== undefined ? ` (${fmtBytes(entry.size)})` : ''}
-                </span>
-              )}
-            </div>
-          ))}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+        <span style={{ ...pathStyle, flex: 1 }}>{currentPath ?? '加载中…'}</span>
+        {loading && <span style={pathStyle}>加载中…</span>}
+      </div>
+      {error !== '' && <div style={{ color: '#e5534b', marginBottom: 4 }}>{error}</div>}
+      {entries.length === 0 && !loading && error === '' && <div style={pathStyle}>(空目录)</div>}
+      {entries.map(entry => (
+        <div key={entry.path} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {entry.type === 'directory' ? (
+            <button
+              style={{ ...ghostButtonStyle, border: 'none', padding: 0 }}
+              onClick={() => void load(entry.path)}
+            >
+              📁 {entry.name}/
+            </button>
+          ) : (
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              📄 {entry.name}
+              {entry.size !== undefined ? ` (${fmtBytes(entry.size)})` : ''}
+            </span>
+          )}
         </div>
-      )}
+      ))}
     </div>
   )
 }
 
 export function apply(ctx: ClientContext): void {
-  const Dock = (props: DockProps): React.ReactElement => WorkspaceBrowserDock(ctx, props)
-  ctx.effect(() => ctx.slots.inject('conversation.input.dock', () =>
+  const Component = (props: SidebarFilesProps): React.ReactElement => WorkspaceFileBrowser(props)
+  ctx.effect(() => ctx.slots.inject('sidebar.files', () =>
     ctx.slots.register(
       {
-        name: 'conversation.input.dock',
+        name: 'sidebar.files',
         id: 'workspace-browser',
         order: 50,
         label: () => '工作区文件',
       },
-      Dock,
+      Component,
     ),
-  ), 'workspace-browser: dock')
+  ), 'workspace-browser: sidebar files')
 }
