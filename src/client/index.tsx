@@ -62,6 +62,47 @@ const fmtBytes = (size: number): string =>
     : size >= 1024 ? `${(size / 1024).toFixed(1)} KB`
       : `${size} B`
 
+/** 文件类型展示样式：不同扩展名使用不同颜色/标记。 */
+interface FileKind {
+  label: string
+  color: string
+  background: string
+}
+
+function fileKind(name: string): FileKind {
+  const ext = name.includes('.') ? name.split('.').pop()?.toLowerCase() ?? '' : ''
+  switch (ext) {
+    case 'ts': case 'tsx': case 'mts': case 'cts':
+      return { label: 'TS', color: '#fff', background: '#3178c6' }
+    case 'js': case 'jsx': case 'mjs': case 'cjs':
+      return { label: 'JS', color: '#1f2d3d', background: '#f7df1e' }
+    case 'json':
+      return { label: '{}', color: '#fff', background: '#c98a3d' }
+    case 'md': case 'markdown':
+      return { label: 'MD', color: '#1f2d3d', background: '#d4d4d8' }
+    case 'py':
+      return { label: 'PY', color: '#fff', background: '#3572A5' }
+    case 'css': case 'scss': case 'less':
+      return { label: 'CSS', color: '#fff', background: '#663399' }
+    case 'html': case 'htm':
+      return { label: 'HTML', color: '#fff', background: '#e34c26' }
+    case 'yaml': case 'yml':
+      return { label: 'YML', color: '#fff', background: '#cb171e' }
+    case 'sh': case 'bash': case 'zsh':
+      return { label: 'SH', color: '#fff', background: '#4eaa25' }
+    case 'png': case 'jpg': case 'jpeg': case 'gif': case 'webp': case 'svg': case 'ico':
+      return { label: 'IMG', color: '#fff', background: '#c9518f' }
+    case 'zip': case 'tar': case 'gz': case '7z': case 'rar':
+      return { label: 'ZIP', color: '#fff', background: '#8b5a2b' }
+    case 'exe': case 'bin': case 'dll':
+      return { label: 'BIN', color: '#fff', background: '#6b7280' }
+    case 'lock':
+      return { label: 'LOCK', color: '#fff', background: '#b45309' }
+    default:
+      return { label: 'FILE', color: '#d1d5db', background: '#374151' }
+  }
+}
+
 function WorkspaceFileBrowser(props: SidebarFilesProps): React.ReactElement {
   const { useSessions } = props
   const list = useSessions(state => state)
@@ -161,9 +202,29 @@ function WorkspaceFileBrowser(props: SidebarFilesProps): React.ReactElement {
               📁 {entry.name}/
             </button>
           ) : (
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              📄 {entry.name}
-              {entry.size !== undefined ? ` (${fmtBytes(entry.size)})` : ''}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <span
+                style={{
+                  flex: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: 34,
+                  padding: '0 4px',
+                  borderRadius: 4,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  lineHeight: '16px',
+                  color: fileKind(entry.name).color,
+                  background: fileKind(entry.name).background,
+                }}
+              >
+                {fileKind(entry.name).label}
+              </span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {entry.name}
+                {entry.size !== undefined ? ` (${fmtBytes(entry.size)})` : ''}
+              </span>
             </span>
           )}
         </div>
