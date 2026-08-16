@@ -6,12 +6,15 @@ DeepSeek Harness 插件：在 Web UI 中浏览当前工作区文件夹的目录�
 
 ### Web UI 文件浏览
 
-- 侧边栏中显示“工作区文件”面板；
+- 直接占用右侧 `details` 栏（右 sidebar），桌面端打开后默认显示“工作区文件”；
+- 手机端不会自动弹出右侧栏，避免与左侧抽屉冲突；从左侧边栏底部点「工作区文件」时会先收起左侧抽屉，再打开右侧栏；
+- 关闭右侧栏后，可通过左侧边栏底部的「工作区文件」按钮重新打开；
 - 默认列出当前会话工作区根目录；
 - 点击目录可继续向下浏览，提供“返回根目录”按钮；
-- 面板可折叠/展开，折叠后只保留标题行；
+- 点击文件可在右侧栏内以代码编辑器风格预览，支持多文件标签页切换与关闭；
+- 顶部“文件”标签可回到目录浏览，继续打开更多文件；
 - 文件按扩展名显示不同样式/颜色标记（TS、JS、JSON、MD、PY、CSS、HTML、YAML、图片、压缩包等）；
-- 通过宿主 HTTP API `/workspace-browser/api/list` 读取目录，使用 `ctx.fs`，与模型工具共用同一套目录解析逻辑。
+- 通过宿主 HTTP API `/workspace-browser/api/list` 与 `/workspace-browser/api/read` 读取目录/文件，使用 `ctx.fs`，与模型工具共用同一套目录解析逻辑。
 
 ### 模型工具
 
@@ -47,6 +50,7 @@ DeepSeek Harness 插件：在 Web UI 中浏览当前工作区文件夹的目录�
 | `maxDepth` | `number` | `5` | 默认递归深度上限 |
 | `showHidden` | `boolean` | `false` | 默认是否显示隐藏文件/目录 |
 | `allowOutsideRoot` | `boolean` | `false` | 是否允许列出工作区根之外的绝对路径 |
+| `maxPreviewBytes` | `number` | `1048576` | Web UI 文件预览的字节上限（1 MiB） |
 
 ## 构建与注入
 

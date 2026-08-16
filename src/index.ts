@@ -37,6 +37,8 @@ interface FsService {
   resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>
   listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
   contains(parent: FsTarget, child: FsTarget): boolean
+  stat(target: FsTarget, signal?: AbortSignal): Promise<{ type: string; size?: number } | undefined>
+  readText(target: FsTarget, signal?: AbortSignal): Promise<string>
 }
 
 interface WebServerService {
@@ -84,6 +86,8 @@ export interface Config {
   showHidden: boolean
   /** 是否允许列出工作区根之外的绝对路径（默认 false）。 */
   allowOutsideRoot: boolean
+  /** Web UI 文件预览的字节上限。 */
+  maxPreviewBytes: number
 }
 
 export const Config = z.object({
@@ -92,6 +96,7 @@ export const Config = z.object({
   maxDepth: z.natural().min(0).default(5),
   showHidden: z.boolean().default(false),
   allowOutsideRoot: z.boolean().default(false),
+  maxPreviewBytes: z.natural().min(1024).default(1024 * 1024),
 })
 
 /** 解析并校验 `max_entries` 参数，不允许超过部署上限。 */
@@ -237,13 +242,31 @@ function applyWorkspaceBrowserApi(ctx: AppContext, config: Config): void {
         res.end(JSON.stringify(obj))
       }
       try {
-        if (req.method !== 'GET' || pathname !== '/list') {
+        if (req.method !== 'GET') {
           return send(404, { ok: false, error: `not found: ${req.method ?? 'GET'} ${pathname}` })
         }
 
         const sessionId = url.searchParams.get('sessionId') ?? ''
         const cwd = sessionId ? sessionCwdById(ctx, sessionId) : undefined
         const root = config.root || cwd
+
+        if (pathname === '/read') {
+          const path = parsePath(url.searchParams.get('path') ?? undefined)
+          const signal = new AbortController().signal
+          const target = await resolveListTarget(ctx, root, path, config.allowOutsideRoot, signal)
+          const info = await ctx.fs.stat(target, signal)
+          if (info?.type !== 'file') throw new Error('not a file')
+          if (info.size !== undefined && info.size > config.maxPreviewBytes) {
+            throw new Error(`文件过大（${info.size} 字节），超过预览上限 ${config.maxPreviewBytes} 字节`)
+          }
+          const content = await ctx.fs.readText(target, signal)
+          return send(200, { ok: true, path: target.displayPath, content })
+        }
+
+        if (pathname !== '/list') {
+          return send(404, { ok: false, error: `not found: ${req.method ?? 'GET'} ${pathname}` })
+        }
+
         const path = parsePath(url.searchParams.get('path') ?? undefined)
         const rawMaxEntries = url.searchParams.get('max_entries')
         const maxEntries = rawMaxEntries === null

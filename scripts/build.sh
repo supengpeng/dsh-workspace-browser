@@ -53,6 +53,7 @@ link_pkg @deepseek-ai/schemastery vendor/schemastery
 link_pkg @deepseek-ai/dsh-tools packages/core/tools
 link_pkg @deepseek-ai/dsh-llm packages/llm/llm
 link_pkg @deepseek-ai/dsh-system-prompt packages/core/system-prompt
+link_pkg @deepseek-ai/dsh-client-ui-primitives packages/client/ui-primitives
 # @types/node + @types/react（编译类型；checkout 自带）
 link_pkg @types/node node_modules/@types/node
 link_pkg @types/react node_modules/.pnpm/@types+react@18.3.31/node_modules/@types/react
