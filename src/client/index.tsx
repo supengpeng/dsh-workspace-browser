@@ -112,6 +112,7 @@ function WorkspaceFileBrowser(props: SidebarFilesProps): React.ReactElement {
   const [entries, setEntries] = useState<WorkspaceEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [collapsed, setCollapsed] = useState(false)
 
   const load = useCallback(async (path?: string): Promise<void> => {
     if (sessionId === undefined) return
@@ -181,54 +182,65 @@ function WorkspaceFileBrowser(props: SidebarFilesProps): React.ReactElement {
   return (
     <div style={panelStyle}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <button
+          style={{ ...ghostButtonStyle, border: 'none', padding: 0, fontSize: 12 }}
+          onClick={() => setCollapsed(value => !value)}
+          aria-label={collapsed ? '展开工作区文件' : '折叠工作区文件'}
+        >
+          {collapsed ? '▸' : '▾'}
+        </button>
         <span style={headerStyle}>📁 工作区文件</span>
         {rootPath !== null && currentPath !== null && currentPath !== rootPath && (
           <button style={ghostButtonStyle} onClick={() => void load(rootPath)}>⬆ 根目录</button>
         )}
       </div>
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
-        <span style={{ ...pathStyle, flex: 1 }}>{currentPath ?? '加载中…'}</span>
-        {loading && <span style={pathStyle}>加载中…</span>}
-      </div>
-      {error !== '' && <div style={{ color: '#e5534b', marginBottom: 4 }}>{error}</div>}
-      {entries.length === 0 && !loading && error === '' && <div style={pathStyle}>(空目录)</div>}
-      {entries.map(entry => (
-        <div key={entry.path} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {entry.type === 'directory' ? (
-            <button
-              style={{ ...ghostButtonStyle, border: 'none', padding: 0 }}
-              onClick={() => void load(entry.path)}
-            >
-              📁 {entry.name}/
-            </button>
-          ) : (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-              <span
-                style={{
-                  flex: 'none',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  minWidth: 34,
-                  padding: '0 4px',
-                  borderRadius: 4,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  lineHeight: '16px',
-                  color: fileKind(entry.name).color,
-                  background: fileKind(entry.name).background,
-                }}
-              >
-                {fileKind(entry.name).label}
-              </span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {entry.name}
-                {entry.size !== undefined ? ` (${fmtBytes(entry.size)})` : ''}
-              </span>
-            </span>
-          )}
-        </div>
-      ))}
+      {!collapsed && (
+        <>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+            <span style={{ ...pathStyle, flex: 1 }}>{currentPath ?? '加载中…'}</span>
+            {loading && <span style={pathStyle}>加载中…</span>}
+          </div>
+          {error !== '' && <div style={{ color: '#e5534b', marginBottom: 4 }}>{error}</div>}
+          {entries.length === 0 && !loading && error === '' && <div style={pathStyle}>(空目录)</div>}
+          {entries.map(entry => (
+            <div key={entry.path} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {entry.type === 'directory' ? (
+                <button
+                  style={{ ...ghostButtonStyle, border: 'none', padding: 0 }}
+                  onClick={() => void load(entry.path)}
+                >
+                  📁 {entry.name}/
+                </button>
+              ) : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <span
+                    style={{
+                      flex: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: 34,
+                      padding: '0 4px',
+                      borderRadius: 4,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      lineHeight: '16px',
+                      color: fileKind(entry.name).color,
+                      background: fileKind(entry.name).background,
+                    }}
+                  >
+                    {fileKind(entry.name).label}
+                  </span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {entry.name}
+                    {entry.size !== undefined ? ` (${fmtBytes(entry.size)})` : ''}
+                  </span>
+                </span>
+              )}
+            </div>
+          ))}
+        </>
+      )}
     </div>
   )
 }
