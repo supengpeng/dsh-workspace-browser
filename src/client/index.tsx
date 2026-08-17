@@ -410,7 +410,6 @@ interface EditorPaneProps {
   onClose: (path: string) => void
   onChange: (path: string, content: string) => void
   onSave: (path: string) => void
-  onShowExplorer: () => void
 }
 
 function EditorPane({
@@ -422,7 +421,6 @@ function EditorPane({
   onClose,
   onChange,
   onSave,
-  onShowExplorer,
 }: EditorPaneProps): React.ReactElement {
   const activeFile = files.find(file => file.path === activePath) ?? null
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -470,9 +468,6 @@ function EditorPane({
   return (
     <div className="dsh-wb-editor">
       <div className="dsh-wb-tabs">
-        <button type="button" className="dsh-wb-tab dsh-wb-tab-explorer" onClick={onShowExplorer}>
-          📁 资源管理器
-        </button>
         {files.map(file => (
           <div
             key={file.path}
@@ -812,12 +807,6 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           color: var(--dsw-alias-label-primary);
           box-shadow: inset 0 2px 0 var(--dsw-alias-state-business-primary);
         }
-        .dsh-wb-tab-explorer {
-          border: none;
-          background: transparent;
-          color: var(--dsw-alias-label-secondary);
-          cursor: pointer;
-        }
         .dsh-wb-tab-label {
           display: inline-flex;
           align-items: center;
@@ -1005,7 +994,6 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           onClose={closeFile}
           onChange={changeFile}
           onSave={path => void saveFile(path)}
-          onShowExplorer={() => setShowExplorer(true)}
         />
       </div>
     </div>

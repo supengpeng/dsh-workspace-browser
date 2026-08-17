@@ -77,9 +77,9 @@ dev_inject_plugin /root/dsh-routing-suite/workspace-browser
 也可以作为 bundle 安装到 profile：
 
 ```bash
-dsh plugin --profile demo add ./dsh-external-workspace-browser-0.7.0.tgz
+dsh plugin --profile demo add ./dsh-external-workspace-browser-0.7.1.tgz
 # 或从 GitHub 安装
-dsh plugin --profile demo add github:supengpeng/dsh-workspace-browser#v0.7.0
+dsh plugin --profile demo add github:supengpeng/dsh-workspace-browser#v0.7.1
 ```
 
 ## 使用示例
