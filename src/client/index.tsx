@@ -6,7 +6,7 @@
  * - 右侧多标签编辑器，支持编辑、保存、脏标记、行号、状态栏；
  * - 通过宿主 HTTP API `/workspace-browser/api/list|read|write` 读写文件。
  */
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   Button, IconCloseOutline16, IconFolderOpenOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -265,7 +265,7 @@ interface TreeRowProps {
   onOpenFile: (path: string, name: string) => void
 }
 
-function TreeRow({
+const TreeRow = React.memo(function TreeRow({
   entry,
   depth,
   expanded,
@@ -313,9 +313,9 @@ function TreeRow({
       )}
     </div>
   )
-}
+})
 
-function WorkspaceExplorer({ sessionId, onOpenFile }: WorkspaceExplorerProps): React.ReactElement {
+const WorkspaceExplorer = React.memo(function WorkspaceExplorer({ sessionId, onOpenFile }: WorkspaceExplorerProps): React.ReactElement {
   const [rootEntries, setRootEntries] = useState<WorkspaceEntry[]>([])
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [childrenMap, setChildrenMap] = useState<Record<string, WorkspaceEntry[]>>({})
@@ -363,6 +363,12 @@ function WorkspaceExplorer({ sessionId, onOpenFile }: WorkspaceExplorerProps): R
     }
   }, [childrenMap, expanded, sessionId])
 
+  const toggleDirectoryRef = useRef(toggleDirectory)
+  toggleDirectoryRef.current = toggleDirectory
+  const handleToggleDirectory = useCallback((entry: WorkspaceEntry): void => {
+    void toggleDirectoryRef.current(entry)
+  }, [])
+
   return (
     <div className="dsh-wb-explorer">
       <div className="dsh-wb-explorer-header">资源管理器</div>
@@ -378,13 +384,13 @@ function WorkspaceExplorer({ sessionId, onOpenFile }: WorkspaceExplorerProps): R
           depth={0}
           expanded={expanded}
           childrenMap={childrenMap}
-          onToggle={entry => void toggleDirectory(entry)}
+          onToggle={handleToggleDirectory}
           onOpenFile={onOpenFile}
         />
       ))}
     </div>
   )
-}
+})
 
 // ─── 编辑器 ──────────────────────────────────────────────────────────────────
 
@@ -399,7 +405,7 @@ interface EditorPaneProps {
   onSave: (path: string) => void
 }
 
-function EditorPane({
+const EditorPane = React.memo(function EditorPane({
   files,
   activePath,
   loadingPath,
@@ -415,7 +421,7 @@ function EditorPane({
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
 
   const lineCount = activeFile ? activeFile.content.split('\n').length : 1
-  const lineNumbers = Array.from({ length: lineCount }, (_, index) => index + 1)
+  const lineNumbers = useMemo(() => Array.from({ length: lineCount }, (_, index) => index + 1), [lineCount])
 
   const syncScroll = (): void => {
     if (gutterRef.current && textareaRef.current) {
@@ -521,7 +527,7 @@ function EditorPane({
       )}
     </div>
   )
-}
+})
 
 // ─── 详情面板（右侧栏） ───────────────────────────────────────────────────────
 
@@ -572,6 +578,12 @@ function WorkspaceFilesPanel({ sessionId, onClose }: WorkspaceFilesPanelProps): 
       setLoadingPath(null)
     }
   }, [openFiles, sessionId])
+
+  const openFileRef = useRef(openFile)
+  openFileRef.current = openFile
+  const handleOpenFile = useCallback((path: string, name: string): void => {
+    void openFileRef.current(path, name)
+  }, [])
 
   const closeFile = useCallback((path: string): void => {
     const next = openFiles.filter(file => file.path !== path)
@@ -964,7 +976,7 @@ function WorkspaceFilesPanel({ sessionId, onClose }: WorkspaceFilesPanelProps): 
         {showExplorer && (
           <WorkspaceExplorer
             sessionId={sessionId}
-            onOpenFile={(path, name) => void openFile(path, name)}
+            onOpenFile={handleOpenFile}
           />
         )}
         <EditorPane
@@ -1004,8 +1016,8 @@ function WorkspaceConversationView(ctx: ClientContext): React.ReactElement | nul
     el.textContent = '已在右侧打开工作区文件'
     el.style.cssText = [
       'position:fixed',
-      'top:16px',
-      'right:16px',
+      'bottom:24px',
+      'right:24px',
       'z-index:99999',
       'padding:10px 14px',
       'border-radius:8px',
