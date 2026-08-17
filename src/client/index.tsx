@@ -91,44 +91,150 @@ const fmtBytes = (size: number): string =>
     : size >= 1024 ? `${(size / 1024).toFixed(1)} KB`
       : `${size} B`
 
-/** 文件类型展示样式：不同扩展名使用不同颜色/标记。 */
-interface FileKind {
-  label: string
+/** 官方风格文件图标：使用品牌色块 + 官方缩写，常见格式有专属图标。 */
+function BrandSquare({
+  color,
+  text,
+  textColor = '#fff',
+  size = 16,
+}: {
   color: string
-  background: string
+  text: string
+  textColor?: string
+  size?: number
+}): React.ReactElement {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" role="img" aria-label={text} className="dsh-wb-file-icon">
+      <rect x="0.5" y="0.5" width="15" height="15" rx="3.5" fill={color} />
+      <text
+        x="8"
+        y="11.5"
+        textAnchor="middle"
+        fontSize="7"
+        fontWeight="700"
+        fill={textColor}
+        fontFamily="ui-sans-serif, system-ui, sans-serif"
+      >
+        {text}
+      </text>
+    </svg>
+  )
 }
 
-function fileKind(name: string): FileKind {
+function GenericFileIcon({ size = 16 }: { size?: number }): React.ReactElement {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" role="img" aria-label="file" className="dsh-wb-file-icon">
+      <path d="M3 1h6l4 4v10H3z" fill="#d1d5db" />
+      <path d="M9 1v4h4" fill="#9ca3af" />
+    </svg>
+  )
+}
+
+function ImageFileIcon({ size = 16 }: { size?: number }): React.ReactElement {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" role="img" aria-label="image" className="dsh-wb-file-icon">
+      <rect x="1" y="2" width="14" height="12" rx="2" fill="#c9518f" />
+      <circle cx="5.5" cy="6" r="1.5" fill="#fff" />
+      <path d="M2.5 13l4-4.5 3 3 2-2 2 2v1.5h-11z" fill="#fff" />
+    </svg>
+  )
+}
+
+function ArchiveFileIcon({ size = 16 }: { size?: number }): React.ReactElement {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" role="img" aria-label="archive" className="dsh-wb-file-icon">
+      <path d="M3 2h10v12H3z" fill="#8b5a2b" />
+      <path d="M5 5h6M5 8h6M5 11h6" stroke="#f5e6d3" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M6 2l1-1h2l1 1" fill="#6b4423" />
+    </svg>
+  )
+}
+
+function DatabaseFileIcon({ size = 16 }: { size?: number }): React.ReactElement {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" role="img" aria-label="database" className="dsh-wb-file-icon">
+      <ellipse cx="8" cy="3.5" rx="6" ry="2" fill="#6b7280" />
+      <path d="M2 3.5v9c0 1.1 2.7 2 6 2s6-.9 6-2v-9" fill="#9ca3af" />
+      <path d="M2 8c0 1.1 2.7 2 6 2s6-.9 6-2" fill="#6b7280" />
+    </svg>
+  )
+}
+
+function FileTypeIcon({ name, size = 16 }: { name: string; size?: number }): React.ReactElement {
   const ext = name.includes('.') ? name.split('.').pop()?.toLowerCase() ?? '' : ''
   switch (ext) {
-    case 'ts': case 'tsx': case 'mts': case 'cts':
-      return { label: 'TS', color: '#fff', background: '#3178c6' }
-    case 'js': case 'jsx': case 'mjs': case 'cjs':
-      return { label: 'JS', color: '#1f2d3d', background: '#f7df1e' }
+    case 'ts': case 'mts': case 'cts':
+      return <BrandSquare color="#3178c6" text="TS" size={size} />
+    case 'tsx':
+      return <BrandSquare color="#3178c6" text="TSX" size={size} />
+    case 'js': case 'mjs': case 'cjs':
+      return <BrandSquare color="#f7df1e" text="JS" textColor="#1f2d3d" size={size} />
+    case 'jsx':
+      return <BrandSquare color="#61dafb" text="JSX" textColor="#1f2d3d" size={size} />
     case 'json':
-      return { label: '{}', color: '#fff', background: '#c98a3d' }
+      return <BrandSquare color="#c98a3d" text="{ }" size={size} />
     case 'md': case 'markdown':
-      return { label: 'MD', color: '#1f2d3d', background: '#d4d4d8' }
+      return <BrandSquare color="#083fa6" text="M↓" size={size} />
     case 'py':
-      return { label: 'PY', color: '#fff', background: '#3572A5' }
+      return <BrandSquare color="#3776ab" text="Py" size={size} />
     case 'css': case 'scss': case 'less':
-      return { label: 'CSS', color: '#fff', background: '#663399' }
+      return <BrandSquare color="#1572b6" text="CSS" size={size} />
     case 'html': case 'htm':
-      return { label: 'HTML', color: '#fff', background: '#e34c26' }
+      return <BrandSquare color="#e34c26" text="HTML" size={size} />
     case 'yaml': case 'yml':
-      return { label: 'YML', color: '#fff', background: '#cb171e' }
+      return <BrandSquare color="#cb171e" text="YML" size={size} />
     case 'sh': case 'bash': case 'zsh':
-      return { label: 'SH', color: '#fff', background: '#4eaa25' }
-    case 'png': case 'jpg': case 'jpeg': case 'gif': case 'webp': case 'svg': case 'ico':
-      return { label: 'IMG', color: '#fff', background: '#c9518f' }
+      return <BrandSquare color="#4eaa25" text=">_" size={size} />
+    case 'go':
+      return <BrandSquare color="#00ADD8" text="Go" textColor="#1f2d3d" size={size} />
+    case 'rs':
+      return <BrandSquare color="#000000" text="Rs" size={size} />
+    case 'java':
+      return <BrandSquare color="#f89820" text="Java" size={size} />
+    case 'c':
+      return <BrandSquare color="#555555" text="C" size={size} />
+    case 'h':
+      return <BrandSquare color="#555555" text="H" size={size} />
+    case 'cpp': case 'cc': case 'cxx': case 'hpp': case 'hh':
+      return <BrandSquare color="#00599C" text="C++" size={size} />
+    case 'cs':
+      return <BrandSquare color="#68217A" text="C#" size={size} />
+    case 'php':
+      return <BrandSquare color="#777BB4" text="PHP" size={size} />
+    case 'rb':
+      return <BrandSquare color="#CC342D" text="Rb" size={size} />
+    case 'swift':
+      return <BrandSquare color="#F05138" text="Swift" size={size} />
+    case 'kt': case 'kts':
+      return <BrandSquare color="#7F52FF" text="Kt" size={size} />
+    case 'vue':
+      return <BrandSquare color="#42B883" text="V" size={size} />
+    case 'svelte':
+      return <BrandSquare color="#FF3E00" text="S" size={size} />
+    case 'angular': case 'ng':
+      return <BrandSquare color="#DD0031" text="A" size={size} />
+    case 'sql':
+      return <DatabaseFileIcon size={size} />
+    case 'toml': case 'ini': case 'conf': case 'cfg':
+      return <BrandSquare color="#6b7280" text="cfg" size={size} />
+    case 'png': case 'jpg': case 'jpeg': case 'gif': case 'webp': case 'svg': case 'ico': case 'bmp':
+      return <ImageFileIcon size={size} />
     case 'zip': case 'tar': case 'gz': case '7z': case 'rar':
-      return { label: 'ZIP', color: '#fff', background: '#8b5a2b' }
-    case 'exe': case 'bin': case 'dll':
-      return { label: 'BIN', color: '#fff', background: '#6b7280' }
+      return <ArchiveFileIcon size={size} />
+    case 'pdf':
+      return <BrandSquare color="#e74c3c" text="PDF" size={size} />
+    case 'doc': case 'docx':
+      return <BrandSquare color="#2B579A" text="W" size={size} />
+    case 'xls': case 'xlsx': case 'csv':
+      return <BrandSquare color="#217346" text="X" size={size} />
+    case 'ppt': case 'pptx':
+      return <BrandSquare color="#D24726" text="P" size={size} />
     case 'lock':
-      return { label: 'LOCK', color: '#fff', background: '#b45309' }
+      return <BrandSquare color="#b45309" text="🔒" size={size} />
+    case 'exe': case 'bin': case 'dll':
+      return <BrandSquare color="#6b7280" text="BIN" size={size} />
     default:
-      return { label: 'FILE', color: '#d1d5db', background: '#374151' }
+      return <GenericFileIcon size={size} />
   }
 }
 
@@ -182,7 +288,6 @@ function TreeRow({
 }: TreeRowProps): React.ReactElement {
   const isDirectory = entry.type === 'directory'
   const isExpanded = expanded[entry.path] === true
-  const kind = fileKind(entry.name)
   return (
     <div>
       <button
@@ -196,12 +301,7 @@ function TreeRow({
         {isDirectory ? (
           <IconFolderOpenOutline16 className="dsh-wb-folder-icon" />
         ) : (
-          <span
-            className="dsh-wb-tree-badge"
-            style={{ color: kind.color, background: kind.background }}
-          >
-            {kind.label}
-          </span>
+          <FileTypeIcon name={entry.name} />
         )}
         <span className="dsh-wb-tree-name">{entry.name}</span>
       </button>
@@ -384,7 +484,8 @@ function EditorPane({
               onClick={() => onSelect(file.path)}
               title={file.path}
             >
-              {file.name}
+              <FileTypeIcon name={file.name} size={14} />
+              <span className="dsh-wb-tab-name">{file.name}</span>
               {file.dirty && <span className="dsh-wb-dirty">●</span>}
             </button>
             <button
@@ -617,11 +718,12 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
         .dsh-wb-tree-row {
           display: flex;
           align-items: center;
-          gap: 4px;
+          gap: 6px;
           width: 100%;
-          min-height: 26px;
-          padding: 2px 8px 2px 8px;
+          min-height: 28px;
+          padding: 3px 8px 3px 8px;
           border: none;
+          border-radius: 6px;
           background: transparent;
           color: var(--dsw-alias-label-primary);
           font-size: 12px;
@@ -629,9 +731,13 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           text-align: left;
           cursor: pointer;
           overflow: hidden;
+          transition: background 0.12s ease, color 0.12s ease;
         }
         .dsh-wb-tree-row:hover {
           background: var(--dsw-alias-interactive-bg-hover);
+        }
+        .dsh-wb-tree-row:active {
+          background: var(--dsw-alias-interactive-bg-active);
         }
         .dsh-wb-tree-arrow {
           flex: none;
@@ -704,6 +810,7 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
         .dsh-wb-tab-active {
           background: var(--dsw-alias-bg-base);
           color: var(--dsw-alias-label-primary);
+          box-shadow: inset 0 2px 0 var(--dsw-alias-state-business-primary);
         }
         .dsh-wb-tab-explorer {
           border: none;
@@ -712,6 +819,9 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           cursor: pointer;
         }
         .dsh-wb-tab-label {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
           flex: 1;
           min-width: 0;
           height: 100%;
@@ -725,6 +835,17 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+        }
+        .dsh-wb-tab-name {
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .dsh-wb-file-icon {
+          display: block;
+          flex: none;
         }
         .dsh-wb-tab-close {
           display: grid;
@@ -789,6 +910,11 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           tab-size: 2;
           white-space: pre;
           overflow: auto;
+          caret-color: var(--dsw-alias-state-business-primary);
+        }
+        .dsh-wb-textarea::selection {
+          background: var(--dsw-alias-state-business-primary);
+          color: #fff;
         }
         .dsh-wb-statusbar {
           display: flex;
