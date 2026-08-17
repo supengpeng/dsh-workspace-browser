@@ -8,10 +8,10 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Button, IconFolderOpenOutline16,
+  Button, IconCloseOutline16, IconFolderOpenOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 
-export const inject = ['slots']
+export const inject = ['slots', 'layout']
 
 /** slots 服务的结构化视图。 */
 interface SlotsFace {
@@ -19,8 +19,16 @@ interface SlotsFace {
   register(options: Record<string, unknown>, component: unknown): unknown
 }
 
+/** layout 服务的结构化视图（完整契约见 @deepseek-ai/dsh-client-ui-layout）。 */
+interface LayoutFace {
+  toggleSidebar(): void
+  openDetails(): void
+  closeDetails(): void
+}
+
 type ClientContext = {
   slots: SlotsFace
+  layout: LayoutFace
   effect(callback: () => unknown, label?: string): unknown
 }
 
@@ -519,10 +527,10 @@ function EditorPane({
 
 interface WorkspaceFilesPanelProps {
   sessionId: string
-  embedded?: boolean
+  onClose?: () => void
 }
 
-function WorkspaceFilesPanel({ sessionId, embedded = false }: WorkspaceFilesPanelProps): React.ReactElement {
+function WorkspaceFilesPanel({ sessionId, onClose }: WorkspaceFilesPanelProps): React.ReactElement {
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
   const [showExplorer, setShowExplorer] = useState<boolean>(() => !window.matchMedia('(max-width: 768px)').matches)
@@ -608,7 +616,7 @@ function WorkspaceFilesPanel({ sessionId, embedded = false }: WorkspaceFilesPane
   }, [openFiles])
 
   return (
-    <div className={`dsh-wb-root ${embedded ? 'dsh-wb-embedded' : ''}`}>
+    <div className="dsh-wb-root">
       <style>{`
         .dsh-wb-root {
           display: flex;
@@ -617,9 +625,6 @@ function WorkspaceFilesPanel({ sessionId, embedded = false }: WorkspaceFilesPane
           min-width: 0;
           background: var(--dsw-alias-bg-base);
           border-left: 1px solid var(--dsw-alias-border-l2);
-        }
-        .dsh-wb-embedded {
-          border-left: none;
         }
         .dsh-wb-header {
           display: flex;
@@ -943,6 +948,16 @@ function WorkspaceFilesPanel({ sessionId, embedded = false }: WorkspaceFilesPane
           >
             {showExplorer ? '隐藏资源管理器' : '显示资源管理器'}
           </Button>
+          {onClose !== undefined && (
+            <button
+              type="button"
+              className="dsh-wb-close"
+              onClick={onClose}
+              aria-label="关闭工作区文件"
+            >
+              <IconCloseOutline16 size={14} />
+            </button>
+          )}
         </div>
       </div>
       <div className="dsh-wb-body">
@@ -967,16 +982,58 @@ function WorkspaceFilesPanel({ sessionId, embedded = false }: WorkspaceFilesPane
   )
 }
 
+interface DetailsProps {
+  sessionId: string
+}
+
+function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.ReactElement {
+  return (
+    <WorkspaceFilesPanel
+      sessionId={props.sessionId}
+      onClose={() => ctx.layout.closeDetails()}
+    />
+  )
+}
+
 interface ConversationViewProps {
   sessionId: string
 }
 
-function WorkspaceConversationView(props: ConversationViewProps): React.ReactElement {
-  return <WorkspaceFilesPanel sessionId={props.sessionId} embedded />
+function WorkspaceConversationView(ctx: ClientContext, props: ConversationViewProps): React.ReactElement {
+  useEffect(() => {
+    ctx.layout.openDetails()
+  }, [ctx.layout])
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        placeItems: 'center',
+        height: '100%',
+        color: 'var(--dsw-alias-label-tertiary)',
+        fontSize: 13,
+      }}
+    >
+      工作区文件已在右侧打开
+    </div>
+  )
 }
 
 export function apply(ctx: ClientContext): void {
-  const ConversationComponent = (props: ConversationViewProps): React.ReactElement => WorkspaceConversationView(props)
+  const DetailsComponent = (props: DetailsProps): React.ReactElement => WorkspaceDetailsPanel(ctx, props)
+  const ConversationComponent = (props: ConversationViewProps): React.ReactElement => WorkspaceConversationView(ctx, props)
+
+  ctx.effect(() => ctx.slots.inject('details', () =>
+    ctx.slots.register(
+      {
+        name: 'details',
+        id: 'workspace-browser',
+        priority: -1,
+        label: () => '工作区文件',
+      },
+      DetailsComponent,
+    ),
+  ), 'workspace-browser: details panel')
 
   ctx.effect(() => ctx.slots.inject('conversation.view', () =>
     ctx.slots.register(
