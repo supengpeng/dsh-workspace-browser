@@ -995,33 +995,54 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
   )
 }
 
-interface ConversationViewProps {
-  sessionId: string
-}
+function WorkspaceHeaderAction(ctx: ClientContext): React.ReactElement {
+  const [toast, setToast] = useState(false)
+  const timerRef = useRef<number | null>(null)
 
-function WorkspaceConversationView(ctx: ClientContext, props: ConversationViewProps): React.ReactElement {
-  useEffect(() => {
+  useEffect(() => () => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current)
+  }, [])
+
+  const open = (): void => {
     ctx.layout.openDetails()
-  }, [ctx.layout])
+    setToast(true)
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current)
+    timerRef.current = window.setTimeout(() => setToast(false), 2000)
+  }
 
   return (
-    <div
-      style={{
-        display: 'grid',
-        placeItems: 'center',
-        height: '100%',
-        color: 'var(--dsw-alias-label-tertiary)',
-        fontSize: 13,
-      }}
-    >
-      工作区文件已在右侧打开
+    <div style={{ position: 'relative' }}>
+      <Button variant="ghost" size="sm" icon={<IconFolderOpenOutline16 />} onClick={open}>
+        工作区文件
+      </Button>
+      {toast && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            right: 0,
+            zIndex: 1000,
+            marginTop: 4,
+            padding: '6px 10px',
+            borderRadius: 8,
+            background: 'var(--dsw-alias-bg-l2)',
+            border: '1px solid var(--dsw-alias-border-l2)',
+            color: 'var(--dsw-alias-label-primary)',
+            fontSize: 12,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          已在右侧打开工作区文件
+        </div>
+      )}
     </div>
   )
 }
 
 export function apply(ctx: ClientContext): void {
   const DetailsComponent = (props: DetailsProps): React.ReactElement => WorkspaceDetailsPanel(ctx, props)
-  const ConversationComponent = (props: ConversationViewProps): React.ReactElement => WorkspaceConversationView(ctx, props)
+  const HeaderActionComponent = (): React.ReactElement => WorkspaceHeaderAction(ctx)
 
   ctx.effect(() => ctx.slots.inject('details', () =>
     ctx.slots.register(
@@ -1035,15 +1056,15 @@ export function apply(ctx: ClientContext): void {
     ),
   ), 'workspace-browser: details panel')
 
-  ctx.effect(() => ctx.slots.inject('conversation.view', () =>
+  ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () =>
     ctx.slots.register(
       {
-        name: 'conversation.view',
-        id: 'workspace-files',
-        order: 20,
+        name: 'conversation.session.header.actions',
+        id: 'workspace-browser',
+        order: 10,
         label: () => '工作区文件',
       },
-      ConversationComponent,
+      HeaderActionComponent,
     ),
-  ), 'workspace-browser: conversation view')
+  ), 'workspace-browser: header action')
 }
