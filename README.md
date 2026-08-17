@@ -6,7 +6,7 @@ DeepSeek Harness 插件：在 Web UI 中提供接近 VS Code 的工作区文件�
 
 ### Web UI 文件浏览与编辑
 
-- 与「对话」「轨迹」同层显示「工作区文件」标签；点击后在右侧 details 栏打开，并在右下角弹出轻提示，随后自动回到对话视图，主内容区保持对话不变；
+- 与「对话」「轨迹」同层显示「工作区文件」标签；点击后在右侧 details 栏打开，并在「工作区文件」标签下方弹出轻提示，随后自动回到对话视图，主内容区保持对话不变；
 - 性能优化：资源管理器树/编辑器使用 memo 减少无效渲染，行号按需 memo，目录切换回调稳定，适合大目录与频繁编辑场景；
 - **资源管理器树**：左侧显示可展开/折叠的目录树，点击目录懒加载子目录；
 - **多标签编辑器**：点击文件在右侧打开标签页，支持多文件切换、关闭、脏标记（未保存圆点）；
@@ -76,9 +76,9 @@ dev_inject_plugin /root/dsh-routing-suite/workspace-browser
 也可以作为 bundle 安装到 profile：
 
 ```bash
-dsh plugin --profile demo add ./dsh-external-workspace-browser-0.8.4.tgz
+dsh plugin --profile demo add ./dsh-external-workspace-browser-0.8.5.tgz
 # 或从 GitHub 安装
-dsh plugin --profile demo add github:supengpeng/dsh-workspace-browser#v0.8.4
+dsh plugin --profile demo add github:supengpeng/dsh-workspace-browser#v0.8.5
 ```
 
 ## 使用示例

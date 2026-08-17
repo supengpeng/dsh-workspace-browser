@@ -1014,25 +1014,32 @@ function WorkspaceConversationView(ctx: ClientContext): React.ReactElement | nul
     // 全局轻提示：不依赖当前视图组件存活，切回对话后仍会显示并自动消失。
     const el = document.createElement('div')
     el.textContent = '已在右侧打开工作区文件'
+    // 优先显示在“工作区文件”标签下方；找不到时回退到右下角。
+    const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+    const activeTab = tabs.find(tab => /工作区文件|Workspace Files/.test(tab.textContent ?? ''))
+      ?? tabs.find(tab => tab.getAttribute('aria-selected') === 'true')
+    const rect = activeTab?.getBoundingClientRect()
+    const left = rect !== undefined ? Math.min(Math.max(8, rect.left), window.innerWidth - 220) : undefined
+    const top = rect !== undefined ? rect.bottom + 8 : undefined
     el.style.cssText = [
       'position:fixed',
-      'bottom:24px',
-      'right:24px',
+      left !== undefined ? `left:${left}px` : 'right:24px',
+      top !== undefined ? `top:${top}px` : 'bottom:24px',
       'z-index:99999',
-      'padding:10px 14px',
+      'padding:8px 12px',
       'border-radius:8px',
       'background:var(--dsw-alias-bg-l2)',
       'border:1px solid var(--dsw-alias-border-l2)',
       'color:var(--dsw-alias-label-primary)',
-      'font-size:13px',
+      'font-size:12px',
       'box-shadow:0 4px 16px rgba(0,0,0,0.25)',
       'pointer-events:none',
+      'white-space:nowrap',
     ].join(';')
     document.body.appendChild(el)
     window.setTimeout(() => el.remove(), 2000)
 
     // 回到第一个/“对话”标签，让主内容区保持对话视图。
-    const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
     const chatTab = tabs.find(tab => /对话|Chat|聊天/.test(tab.textContent ?? '')) ?? tabs[0]
     chatTab?.click()
   }, [ctx.layout])
