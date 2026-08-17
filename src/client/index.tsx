@@ -6,7 +6,7 @@
  * - 右侧多标签编辑器，支持编辑、保存、脏标记、行号、状态栏；
  * - 通过宿主 HTTP API `/workspace-browser/api/list|read|write` 读写文件。
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   Button, IconCloseOutline16, IconFolderOpenOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -995,54 +995,42 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
   )
 }
 
-function WorkspaceHeaderAction(ctx: ClientContext): React.ReactElement {
-  const [toast, setToast] = useState(false)
-  const timerRef = useRef<number | null>(null)
-
-  useEffect(() => () => {
-    if (timerRef.current !== null) window.clearTimeout(timerRef.current)
-  }, [])
-
-  const open = (): void => {
+function WorkspaceConversationView(ctx: ClientContext): React.ReactElement | null {
+  useLayoutEffect(() => {
     ctx.layout.openDetails()
-    setToast(true)
-    if (timerRef.current !== null) window.clearTimeout(timerRef.current)
-    timerRef.current = window.setTimeout(() => setToast(false), 2000)
-  }
 
-  return (
-    <div style={{ position: 'relative' }}>
-      <Button variant="ghost" size="sm" icon={<IconFolderOpenOutline16 />} onClick={open}>
-        工作区文件
-      </Button>
-      {toast && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '100%',
-            right: 0,
-            zIndex: 1000,
-            marginTop: 4,
-            padding: '6px 10px',
-            borderRadius: 8,
-            background: 'var(--dsw-alias-bg-l2)',
-            border: '1px solid var(--dsw-alias-border-l2)',
-            color: 'var(--dsw-alias-label-primary)',
-            fontSize: 12,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          已在右侧打开工作区文件
-        </div>
-      )}
-    </div>
-  )
+    // 全局轻提示：不依赖当前视图组件存活，切回对话后仍会显示并自动消失。
+    const el = document.createElement('div')
+    el.textContent = '已在右侧打开工作区文件'
+    el.style.cssText = [
+      'position:fixed',
+      'top:16px',
+      'right:16px',
+      'z-index:99999',
+      'padding:10px 14px',
+      'border-radius:8px',
+      'background:var(--dsw-alias-bg-l2)',
+      'border:1px solid var(--dsw-alias-border-l2)',
+      'color:var(--dsw-alias-label-primary)',
+      'font-size:13px',
+      'box-shadow:0 4px 16px rgba(0,0,0,0.25)',
+      'pointer-events:none',
+    ].join(';')
+    document.body.appendChild(el)
+    window.setTimeout(() => el.remove(), 2000)
+
+    // 回到第一个/“对话”标签，让主内容区保持对话视图。
+    const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+    const chatTab = tabs.find(tab => /对话|Chat|聊天/.test(tab.textContent ?? '')) ?? tabs[0]
+    chatTab?.click()
+  }, [ctx.layout])
+
+  return null
 }
 
 export function apply(ctx: ClientContext): void {
   const DetailsComponent = (props: DetailsProps): React.ReactElement => WorkspaceDetailsPanel(ctx, props)
-  const HeaderActionComponent = (): React.ReactElement => WorkspaceHeaderAction(ctx)
+  const ConversationComponent = (): React.ReactElement | null => WorkspaceConversationView(ctx)
 
   ctx.effect(() => ctx.slots.inject('details', () =>
     ctx.slots.register(
@@ -1056,15 +1044,15 @@ export function apply(ctx: ClientContext): void {
     ),
   ), 'workspace-browser: details panel')
 
-  ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () =>
+  ctx.effect(() => ctx.slots.inject('conversation.view', () =>
     ctx.slots.register(
       {
-        name: 'conversation.session.header.actions',
-        id: 'workspace-browser',
-        order: 10,
+        name: 'conversation.view',
+        id: 'workspace-files',
+        order: 20,
         label: () => '工作区文件',
       },
-      HeaderActionComponent,
+      ConversationComponent,
     ),
-  ), 'workspace-browser: header action')
+  ), 'workspace-browser: conversation view')
 }
