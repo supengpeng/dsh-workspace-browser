@@ -8,10 +8,10 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Button, IconCloseOutline16, IconFolderOpenOutline16,
+  Button, IconFolderOpenOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 
-export const inject = ['slots', 'layout']
+export const inject = ['slots']
 
 /** slots 服务的结构化视图。 */
 interface SlotsFace {
@@ -19,31 +19,10 @@ interface SlotsFace {
   register(options: Record<string, unknown>, component: unknown): unknown
 }
 
-/** layout 服务的结构化视图（完整契约见 @deepseek-ai/dsh-client-ui-layout）。 */
-interface LayoutFace {
-  toggleSidebar(): void
-  openDetails(): void
-  closeDetails(): void
-}
-
 type ClientContext = {
   slots: SlotsFace
-  layout: LayoutFace
   effect(callback: () => unknown, label?: string): unknown
 }
-
-/** useSessions 返回状态的最小视图（完整类型见 @deepseek-ai/dsh-client-runtime/client）。 */
-interface SessionSummary {
-  id: string
-  cwd?: string
-}
-
-interface SessionListState {
-  current?: string
-  byId: Record<string, SessionSummary>
-}
-
-type UseSessions = <T>(selector: (state: SessionListState) => T) => T
 
 interface WorkspaceEntry {
   name: string
@@ -538,19 +517,12 @@ function EditorPane({
 
 // ─── 详情面板（右侧栏） ───────────────────────────────────────────────────────
 
-interface DetailsProps {
+interface WorkspaceFilesPanelProps {
   sessionId: string
-  useSessions: UseSessions
+  embedded?: boolean
 }
 
-function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.ReactElement {
-  // 桌面端挂载时自动打开右侧栏；手机端为避免与左侧抽屉冲突，改为由入口按钮打开。
-  useEffect(() => {
-    if (!window.matchMedia('(max-width: 768px)').matches) {
-      ctx.layout.openDetails()
-    }
-  }, [ctx.layout])
-
+function WorkspaceFilesPanel({ sessionId, embedded = false }: WorkspaceFilesPanelProps): React.ReactElement {
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
   const [showExplorer, setShowExplorer] = useState<boolean>(() => !window.matchMedia('(max-width: 768px)').matches)
@@ -564,7 +536,7 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
     }
     setLoadingPath(path)
     try {
-      const params = new URLSearchParams({ sessionId: props.sessionId, path })
+      const params = new URLSearchParams({ sessionId, path })
       const response = await fetch(`${API}/read?${params.toString()}`)
       const data = await response.json() as ReadResponse
       if (!data.ok || data.content === undefined) throw new Error(data.error ?? '读取失败')
@@ -591,7 +563,7 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
     } finally {
       setLoadingPath(null)
     }
-  }, [openFiles, props.sessionId])
+  }, [openFiles, sessionId])
 
   const closeFile = useCallback((path: string): void => {
     const next = openFiles.filter(file => file.path !== path)
@@ -636,7 +608,7 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
   }, [openFiles])
 
   return (
-    <div className="dsh-wb-root">
+    <div className={`dsh-wb-root ${embedded ? 'dsh-wb-embedded' : ''}`}>
       <style>{`
         .dsh-wb-root {
           display: flex;
@@ -645,6 +617,9 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           min-width: 0;
           background: var(--dsw-alias-bg-base);
           border-left: 1px solid var(--dsw-alias-border-l2);
+        }
+        .dsh-wb-embedded {
+          border-left: none;
         }
         .dsh-wb-header {
           display: flex;
@@ -968,20 +943,12 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           >
             {showExplorer ? '隐藏资源管理器' : '显示资源管理器'}
           </Button>
-          <button
-            type="button"
-            className="dsh-wb-close"
-            onClick={() => ctx.layout.closeDetails()}
-            aria-label="关闭工作区文件"
-          >
-            <IconCloseOutline16 size={14} />
-          </button>
         </div>
       </div>
       <div className="dsh-wb-body">
         {showExplorer && (
           <WorkspaceExplorer
-            sessionId={props.sessionId}
+            sessionId={sessionId}
             onOpenFile={(path, name) => void openFile(path, name)}
           />
         )}
@@ -1000,57 +967,26 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
   )
 }
 
-/** 侧边栏底部入口：用于关闭右侧栏后重新打开。 */
-interface FooterActionProps {
-  wide: boolean
+interface ConversationViewProps {
+  sessionId: string
 }
 
-function WorkspaceFooterAction(ctx: ClientContext, props: FooterActionProps): React.ReactElement {
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      icon={<IconFolderOpenOutline16 />}
-      onClick={() => {
-        // 手机端从左侧抽屉进入时，先收起左侧抽屉，避免左右两个抽屉同时打开。
-        if (window.matchMedia('(max-width: 768px)').matches) {
-          ctx.layout.toggleSidebar()
-        }
-        ctx.layout.openDetails()
-      }}
-      aria-label="工作区文件"
-      title="工作区文件"
-    >
-      {props.wide && '工作区文件'}
-    </Button>
-  )
+function WorkspaceConversationView(props: ConversationViewProps): React.ReactElement {
+  return <WorkspaceFilesPanel sessionId={props.sessionId} embedded />
 }
 
 export function apply(ctx: ClientContext): void {
-  const DetailsComponent = (props: DetailsProps): React.ReactElement => WorkspaceDetailsPanel(ctx, props)
-  const FooterComponent = (props: FooterActionProps): React.ReactElement => WorkspaceFooterAction(ctx, props)
+  const ConversationComponent = (props: ConversationViewProps): React.ReactElement => WorkspaceConversationView(props)
 
-  ctx.effect(() => ctx.slots.inject('details', () =>
+  ctx.effect(() => ctx.slots.inject('conversation.view', () =>
     ctx.slots.register(
       {
-        name: 'details',
-        id: 'workspace-browser',
-        priority: -1,
+        name: 'conversation.view',
+        id: 'workspace-files',
+        order: 20,
         label: () => '工作区文件',
       },
-      DetailsComponent,
+      ConversationComponent,
     ),
-  ), 'workspace-browser: details panel')
-
-  ctx.effect(() => ctx.slots.inject('sidebar.footer.action', () =>
-    ctx.slots.register(
-      {
-        name: 'sidebar.footer.action',
-        id: 'workspace-browser',
-        order: 60,
-        label: () => '工作区文件',
-      },
-      FooterComponent,
-    ),
-  ), 'workspace-browser: footer reopen action')
+  ), 'workspace-browser: conversation view')
 }
