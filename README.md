@@ -1,20 +1,20 @@
 # @dsh-external/workspace-browser
 
-DeepSeek Harness 插件：在 Web UI 中浏览当前工作区文件夹的目录结构与文件列表，同时提供模型可见工具 `list_workspace`。
+DeepSeek Harness 插件：在 Web UI 中提供接近 VS Code 的工作区文件浏览器与编辑器，同时提供模型可见工具 `list_workspace`。
 
 ## 功能
 
-### Web UI 文件浏览
+### Web UI 文件浏览与编辑
 
 - 直接占用右侧 `details` 栏（右 sidebar），桌面端打开后默认显示“工作区文件”；
 - 手机端不会自动弹出右侧栏，避免与左侧抽屉冲突；从左侧边栏底部点「工作区文件」时会先收起左侧抽屉，再打开右侧栏；
 - 关闭右侧栏后，可通过左侧边栏底部的「工作区文件」按钮重新打开；
-- 默认列出当前会话工作区根目录；
-- 点击目录可继续向下浏览，提供“返回根目录”按钮；
-- 点击文件可在右侧栏内以代码编辑器风格预览，支持多文件标签页切换与关闭；
-- 顶部“文件”标签可回到目录浏览，继续打开更多文件；
+- **资源管理器树**：左侧显示可展开/折叠的目录树，点击目录懒加载子目录；
+- **多标签编辑器**：点击文件在右侧打开标签页，支持多文件切换、关闭、脏标记（未保存圆点）；
+- **编辑与保存**：直接在编辑器内修改文件，支持 `Ctrl/Cmd+S` 保存、Tab 缩进、行号、当前行列状态栏；
+- **状态栏**：显示语言、行/列、UTF-8、LF、保存状态；
 - 文件按扩展名显示不同样式/颜色标记（TS、JS、JSON、MD、PY、CSS、HTML、YAML、图片、压缩包等）；
-- 通过宿主 HTTP API `/workspace-browser/api/list` 与 `/workspace-browser/api/read` 读取目录/文件，使用 `ctx.fs`，与模型工具共用同一套目录解析逻辑。
+- 通过宿主 HTTP API `/workspace-browser/api/list`、`/read`、`/write` 读写目录/文件，使用 `ctx.fs`，与模型工具共用同一套目录解析逻辑。
 
 ### 模型工具
 
@@ -28,7 +28,7 @@ DeepSeek Harness 插件：在 Web UI 中浏览当前工作区文件夹的目录�
 - 返回每个条目的名称、类型（`file` / `directory` / `other`）、显示路径、深度和文件大小；
 - 超出 `maxEntries` 时返回 `truncated: true`。
 
-实现基于 Harness 的 `ctx.fs` 服务（`resolve` / `listDir` / `contains`），
+实现基于 Harness 的 `ctx.fs` 服务（`resolve` / `listDir` / `contains` / `readText` / `writeText`），
 不直接读取 Node fs，因此也适用于远程或沙箱文件系统后端。
 
 ## 工具参数
@@ -50,7 +50,7 @@ DeepSeek Harness 插件：在 Web UI 中浏览当前工作区文件夹的目录�
 | `maxDepth` | `number` | `5` | 默认递归深度上限 |
 | `showHidden` | `boolean` | `false` | 默认是否显示隐藏文件/目录 |
 | `allowOutsideRoot` | `boolean` | `false` | 是否允许列出工作区根之外的绝对路径 |
-| `maxPreviewBytes` | `number` | `1048576` | Web UI 文件预览的字节上限（1 MiB） |
+| `maxPreviewBytes` | `number` | `1048576` | Web UI 文件预览/编辑的字节上限（1 MiB） |
 
 ## 构建与注入
 
@@ -69,9 +69,9 @@ dev_inject_plugin /root/dsh-routing-suite/workspace-browser
 也可以作为 bundle 安装到 profile：
 
 ```bash
-dsh plugin --profile demo add ./dsh-external-workspace-browser-0.4.1.tgz
+dsh plugin --profile demo add ./dsh-external-workspace-browser-0.5.0.tgz
 # 或从 GitHub 安装
-dsh plugin --profile demo add github:supengpeng/dsh-workspace-browser#v0.4.1
+dsh plugin --profile demo add github:supengpeng/dsh-workspace-browser#v0.5.0
 ```
 
 ## 使用示例

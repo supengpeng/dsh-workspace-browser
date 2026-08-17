@@ -1,14 +1,14 @@
 /**
  * @dsh-external/workspace-browser — Web UI 半。
  *
- * 直接占用 AppFrame 的右侧 `details` 栏（右 sidebar），显示当前会话工作区
- * 根目录；点击目录继续向下浏览，提供“返回根目录”按钮。
- * 样式使用 Web UI 主题令牌，并针对窄屏/手机端做紧凑适配。
- * 数据来自宿主 HTTP API `/workspace-browser/api/list`。
+ * 尽量接近 VS Code 的工作区文件体验：
+ * - 左侧资源管理器树（目录可展开/折叠）；
+ * - 右侧多标签编辑器，支持编辑、保存、脏标记、行号、状态栏；
+ * - 通过宿主 HTTP API `/workspace-browser/api/list|read|write` 读写文件。
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Button, CodeBlock, IconCloseOutline16, IconFolderOpenOutline16,
+  Button, IconCloseOutline16, IconFolderOpenOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 
 export const inject = ['slots', 'layout']
@@ -45,11 +45,6 @@ interface SessionListState {
 
 type UseSessions = <T>(selector: (state: SessionListState) => T) => T
 
-interface WorkspaceFileBrowserProps {
-  useSessions: UseSessions
-  onOpenFile?: (path: string, name: string) => void
-}
-
 interface WorkspaceEntry {
   name: string
   type: 'file' | 'directory' | 'other'
@@ -73,11 +68,19 @@ interface ReadResponse {
   error?: string
 }
 
+interface WriteResponse {
+  ok: boolean
+  path?: string
+  error?: string
+}
+
 interface OpenFile {
   path: string
   name: string
   content: string
+  originalContent: string
   error?: string
+  dirty: boolean
 }
 
 const API = '/workspace-browser/api'
@@ -128,7 +131,7 @@ function fileKind(name: string): FileKind {
   }
 }
 
-/** 从文件名推断 CodeBlock 使用的语言标识。 */
+/** 从文件名推断编辑器的语言标识。 */
 function langFromName(name: string): string | undefined {
   const ext = name.includes('.') ? name.split('.').pop()?.toLowerCase() ?? '' : ''
   switch (ext) {
@@ -152,30 +155,96 @@ function langFromName(name: string): string | undefined {
   }
 }
 
-function WorkspaceFileBrowser({ useSessions, onOpenFile }: WorkspaceFileBrowserProps): React.ReactElement {
-  const list = useSessions(state => state)
-  const sessionId = list.current
-  const [rootPath, setRootPath] = useState<string | null>(null)
-  const [currentPath, setCurrentPath] = useState<string | null>(null)
-  const [entries, setEntries] = useState<WorkspaceEntry[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+// ─── 资源管理器树 ─────────────────────────────────────────────────────────────
 
-  const load = useCallback(async (path?: string): Promise<void> => {
-    if (sessionId === undefined) return
+interface WorkspaceExplorerProps {
+  sessionId: string
+  onOpenFile: (path: string, name: string) => void
+}
+
+interface TreeRowProps {
+  entry: WorkspaceEntry
+  depth: number
+  expanded: Record<string, boolean>
+  childrenMap: Record<string, WorkspaceEntry[]>
+  onToggle: (entry: WorkspaceEntry) => void
+  onOpenFile: (path: string, name: string) => void
+}
+
+function TreeRow({
+  entry,
+  depth,
+  expanded,
+  childrenMap,
+  onToggle,
+  onOpenFile,
+}: TreeRowProps): React.ReactElement {
+  const isDirectory = entry.type === 'directory'
+  const isExpanded = expanded[entry.path] === true
+  const kind = fileKind(entry.name)
+  return (
+    <div>
+      <button
+        type="button"
+        className="dsh-wb-tree-row"
+        style={{ paddingLeft: 8 + depth * 14 }}
+        onClick={() => isDirectory ? onToggle(entry) : onOpenFile(entry.path, entry.name)}
+        title={entry.path}
+      >
+        <span className="dsh-wb-tree-arrow">{isDirectory ? (isExpanded ? '▾' : '▸') : ''}</span>
+        {isDirectory ? (
+          <IconFolderOpenOutline16 className="dsh-wb-folder-icon" />
+        ) : (
+          <span
+            className="dsh-wb-tree-badge"
+            style={{ color: kind.color, background: kind.background }}
+          >
+            {kind.label}
+          </span>
+        )}
+        <span className="dsh-wb-tree-name">{entry.name}</span>
+      </button>
+      {isDirectory && isExpanded && (
+        <div>
+          {childrenMap[entry.path] === undefined ? (
+            <div className="dsh-wb-tree-loading" style={{ paddingLeft: 22 + depth * 14 }}>加载中…</div>
+          ) : (
+            childrenMap[entry.path].map(child => (
+              <TreeRow
+                key={child.path}
+                entry={child}
+                depth={depth + 1}
+                expanded={expanded}
+                childrenMap={childrenMap}
+                onToggle={onToggle}
+                onOpenFile={onOpenFile}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function WorkspaceExplorer({ sessionId, onOpenFile }: WorkspaceExplorerProps): React.ReactElement {
+  const [rootEntries, setRootEntries] = useState<WorkspaceEntry[]>([])
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [childrenMap, setChildrenMap] = useState<Record<string, WorkspaceEntry[]>>({})
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const loadRoot = useCallback(async (): Promise<void> => {
     setLoading(true)
     setError('')
     try {
       const params = new URLSearchParams({ sessionId })
-      if (path !== undefined) params.set('path', path)
       const response = await fetch(`${API}/list?${params.toString()}`)
       const data = await response.json() as ListResponse
-      if (!data.ok || data.path === undefined) {
-        throw new Error(data.error ?? '加载失败')
-      }
-      setRootPath(previous => previous ?? data.cwd ?? data.path ?? null)
-      setCurrentPath(data.path)
-      setEntries(data.entries ?? [])
+      if (!data.ok || data.entries === undefined) throw new Error(data.error ?? '加载失败')
+      setRootEntries(data.entries)
+      setExpanded({})
+      setChildrenMap({})
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError))
     } finally {
@@ -184,70 +253,191 @@ function WorkspaceFileBrowser({ useSessions, onOpenFile }: WorkspaceFileBrowserP
   }, [sessionId])
 
   useEffect(() => {
-    setRootPath(null)
-    setCurrentPath(null)
-    setEntries([])
-    void load()
-  }, [load])
+    void loadRoot()
+  }, [loadRoot])
 
-  if (sessionId === undefined) {
-    return <div className="dsh-wb-empty">当前没有会话</div>
-  }
+  const toggleDirectory = useCallback(async (entry: WorkspaceEntry): Promise<void> => {
+    if (expanded[entry.path]) {
+      setExpanded(previous => ({ ...previous, [entry.path]: false }))
+      return
+    }
+    setExpanded(previous => ({ ...previous, [entry.path]: true }))
+    if (childrenMap[entry.path] !== undefined) return
+    try {
+      const params = new URLSearchParams({ sessionId, path: entry.path })
+      const response = await fetch(`${API}/list?${params.toString()}`)
+      const data = await response.json() as ListResponse
+      if (!data.ok || data.entries === undefined) throw new Error(data.error ?? '加载失败')
+      setChildrenMap(previous => ({ ...previous, [entry.path]: data.entries ?? [] }))
+    } catch (toggleError) {
+      setChildrenMap(previous => ({ ...previous, [entry.path]: [] }))
+      setError(toggleError instanceof Error ? toggleError.message : String(toggleError))
+    }
+  }, [childrenMap, expanded, sessionId])
 
   return (
-    <>
-      <div className="dsh-wb-pathbar">
-        <span className="dsh-wb-path">{currentPath ?? '加载中…'}</span>
-        {rootPath !== null && currentPath !== null && currentPath !== rootPath && (
-          <Button variant="ghost" size="sm" onClick={() => void load(rootPath)}>⬆ 根目录</Button>
-        )}
-        {loading && <span className="dsh-wb-loading">加载中…</span>}
-      </div>
-
+    <div className="dsh-wb-explorer">
+      <div className="dsh-wb-explorer-header">资源管理器</div>
+      {loading && <div className="dsh-wb-tree-loading">加载中…</div>}
       {error !== '' && <div className="dsh-wb-error">{error}</div>}
-      {entries.length === 0 && !loading && error === '' && (
+      {!loading && rootEntries.length === 0 && error === '' && (
         <div className="dsh-wb-empty">空目录</div>
       )}
-
-      {entries.map(entry => (
-        <div key={entry.path}>
-          {entry.type === 'directory' ? (
-            <button
-              type="button"
-              className="dsh-wb-row"
-              onClick={() => void load(entry.path)}
-            >
-              <IconFolderOpenOutline16 className="dsh-wb-folder-icon" />
-              <span className="dsh-wb-name">{entry.name}/</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="dsh-wb-row dsh-wb-row-file"
-              onClick={() => onOpenFile?.(entry.path, entry.name)}
-            >
-              <span
-                className="dsh-wb-badge"
-                style={{
-                  color: fileKind(entry.name).color,
-                  background: fileKind(entry.name).background,
-                }}
-              >
-                {fileKind(entry.name).label}
-              </span>
-              <span className="dsh-wb-name">{entry.name}</span>
-              {entry.size !== undefined && (
-                <span className="dsh-wb-size">{fmtBytes(entry.size)}</span>
-              )}
-            </button>
-          )}
-        </div>
+      {rootEntries.map(entry => (
+        <TreeRow
+          key={entry.path}
+          entry={entry}
+          depth={0}
+          expanded={expanded}
+          childrenMap={childrenMap}
+          onToggle={entry => void toggleDirectory(entry)}
+          onOpenFile={onOpenFile}
+        />
       ))}
-    </>
+    </div>
   )
 }
 
-/** details 栏（右侧栏）条目收到的 props。 */
+// ─── 编辑器 ──────────────────────────────────────────────────────────────────
+
+interface EditorPaneProps {
+  files: OpenFile[]
+  activePath: string | null
+  loadingPath: string | null
+  savingPath: string | null
+  onSelect: (path: string) => void
+  onClose: (path: string) => void
+  onChange: (path: string, content: string) => void
+  onSave: (path: string) => void
+  onShowExplorer: () => void
+}
+
+function EditorPane({
+  files,
+  activePath,
+  loadingPath,
+  savingPath,
+  onSelect,
+  onClose,
+  onChange,
+  onSave,
+  onShowExplorer,
+}: EditorPaneProps): React.ReactElement {
+  const activeFile = files.find(file => file.path === activePath) ?? null
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const gutterRef = useRef<HTMLDivElement | null>(null)
+  const [cursor, setCursor] = useState({ line: 1, column: 1 })
+
+  const lineCount = activeFile ? activeFile.content.split('\n').length : 1
+  const lineNumbers = Array.from({ length: lineCount }, (_, index) => index + 1)
+
+  const syncScroll = (): void => {
+    if (gutterRef.current && textareaRef.current) {
+      gutterRef.current.scrollTop = textareaRef.current.scrollTop
+    }
+  }
+
+  const updateCursor = (element: HTMLTextAreaElement): void => {
+    const value = element.value
+    const upTo = value.slice(0, element.selectionStart)
+    const line = upTo.split('\n').length
+    const column = upTo.length - upTo.lastIndexOf('\n')
+    setCursor({ line, column })
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (!activeFile) return
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+      event.preventDefault()
+      onSave(activeFile.path)
+      return
+    }
+    if (event.key === 'Tab') {
+      event.preventDefault()
+      const element = event.currentTarget
+      const start = element.selectionStart
+      const end = element.selectionEnd
+      const next = activeFile.content.slice(0, start) + '  ' + activeFile.content.slice(end)
+      onChange(activeFile.path, next)
+      requestAnimationFrame(() => {
+        element.selectionStart = element.selectionEnd = start + 2
+        updateCursor(element)
+      })
+    }
+  }
+
+  return (
+    <div className="dsh-wb-editor">
+      <div className="dsh-wb-tabs">
+        <button type="button" className="dsh-wb-tab dsh-wb-tab-explorer" onClick={onShowExplorer}>
+          📁 资源管理器
+        </button>
+        {files.map(file => (
+          <div
+            key={file.path}
+            className={`dsh-wb-tab ${activePath === file.path ? 'dsh-wb-tab-active' : ''}`}
+          >
+            <button
+              type="button"
+              className="dsh-wb-tab-label"
+              onClick={() => onSelect(file.path)}
+              title={file.path}
+            >
+              {file.name}
+              {file.dirty && <span className="dsh-wb-dirty">●</span>}
+            </button>
+            <button
+              type="button"
+              className="dsh-wb-tab-close"
+              onClick={() => onClose(file.path)}
+              aria-label={`关闭 ${file.name}`}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="dsh-wb-editor-body">
+        {activeFile === null ? (
+          <div className="dsh-wb-welcome">从左侧资源管理器选择文件开始编辑</div>
+        ) : activeFile.error !== undefined && activeFile.error !== '' ? (
+          <div className="dsh-wb-error">{activeFile.error}</div>
+        ) : (
+          <>
+            <div className="dsh-wb-gutter" ref={gutterRef}>
+              {lineNumbers.map(line => <div key={line} className="dsh-wb-gutter-line">{line}</div>)}
+            </div>
+            <textarea
+              ref={textareaRef}
+              className="dsh-wb-textarea"
+              value={activeFile.content}
+              spellCheck={false}
+              onChange={event => onChange(activeFile.path, event.target.value)}
+              onScroll={syncScroll}
+              onSelect={event => updateCursor(event.currentTarget)}
+              onClick={event => updateCursor(event.currentTarget)}
+              onKeyDown={handleKeyDown}
+            />
+          </>
+        )}
+      </div>
+      {activeFile !== null && activeFile.error === undefined && (
+        <div className="dsh-wb-statusbar">
+          <span>{langFromName(activeFile.name) ?? 'Plain Text'}</span>
+          <span>Ln {cursor.line}, Col {cursor.column}</span>
+          <span>UTF-8</span>
+          <span>LF</span>
+          <span className="dsh-wb-status-save">
+            {savingPath === activeFile.path ? '保存中…' : activeFile.dirty ? '未保存' : '已保存'}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── 详情面板（右侧栏） ───────────────────────────────────────────────────────
+
 interface DetailsProps {
   sessionId: string
   useSessions: UseSessions
@@ -263,13 +453,13 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
 
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
-  const [showBrowser, setShowBrowser] = useState(true)
+  const [showExplorer, setShowExplorer] = useState<boolean>(() => !window.matchMedia('(max-width: 768px)').matches)
   const [loadingPath, setLoadingPath] = useState<string | null>(null)
+  const [savingPath, setSavingPath] = useState<string | null>(null)
 
   const openFile = useCallback(async (path: string, name: string): Promise<void> => {
     if (openFiles.some(file => file.path === path)) {
       setActivePath(path)
-      setShowBrowser(false)
       return
     }
     setLoadingPath(path)
@@ -278,20 +468,26 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
       const response = await fetch(`${API}/read?${params.toString()}`)
       const data = await response.json() as ReadResponse
       if (!data.ok || data.content === undefined) throw new Error(data.error ?? '读取失败')
-      const file: OpenFile = { path, name, content: data.content }
+      const file: OpenFile = {
+        path,
+        name,
+        content: data.content,
+        originalContent: data.content,
+        dirty: false,
+      }
       setOpenFiles(previous => [...previous, file])
       setActivePath(path)
-      setShowBrowser(false)
     } catch (readError) {
       const file: OpenFile = {
         path,
         name,
         content: '',
+        originalContent: '',
+        dirty: false,
         error: readError instanceof Error ? readError.message : String(readError),
       }
       setOpenFiles(previous => [...previous, file])
       setActivePath(path)
-      setShowBrowser(false)
     } finally {
       setLoadingPath(null)
     }
@@ -303,9 +499,41 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
     if (activePath === path) {
       const last = next.at(-1)
       setActivePath(last?.path ?? null)
-      if (last === undefined) setShowBrowser(true)
     }
   }, [openFiles, activePath])
+
+  const changeFile = useCallback((path: string, content: string): void => {
+    setOpenFiles(previous => previous.map(file => {
+      if (file.path !== path) return file
+      return { ...file, content, dirty: content !== file.originalContent }
+    }))
+  }, [])
+
+  const saveFile = useCallback(async (path: string): Promise<void> => {
+    const file = openFiles.find(item => item.path === path)
+    if (!file) return
+    setSavingPath(path)
+    try {
+      const response = await fetch(`${API}/write`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path, content: file.content }),
+      })
+      const data = await response.json() as WriteResponse
+      if (!response.ok || !data.ok) throw new Error(data.error ?? '保存失败')
+      setOpenFiles(previous => previous.map(item => {
+        if (item.path !== path) return item
+        return { ...item, originalContent: item.content, dirty: false }
+      }))
+    } catch (saveError) {
+      setOpenFiles(previous => previous.map(item => {
+        if (item.path !== path) return item
+        return { ...item, error: saveError instanceof Error ? saveError.message : String(saveError) }
+      }))
+    } finally {
+      setSavingPath(null)
+    }
+  }, [openFiles])
 
   const activeFile = openFiles.find(file => file.path === activePath) ?? null
 
@@ -325,7 +553,7 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           align-items: center;
           justify-content: space-between;
           gap: 8px;
-          padding: 12px 16px;
+          padding: 8px 12px;
           border-bottom: 1px solid var(--dsw-alias-border-l2);
           background: var(--dsw-alias-bg-l2);
         }
@@ -335,19 +563,24 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           gap: 6px;
           min-width: 0;
           overflow: hidden;
-          font-size: 14px;
+          font-size: 13px;
           line-height: 20px;
           font-weight: 600;
           color: var(--dsw-alias-label-primary);
           white-space: nowrap;
           text-overflow: ellipsis;
         }
+        .dsh-wb-header-actions {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
         .dsh-wb-close {
           display: grid;
           flex: none;
           place-items: center;
-          width: 28px;
-          height: 28px;
+          width: 26px;
+          height: 26px;
           border: none;
           border-radius: 50%;
           background: transparent;
@@ -359,108 +592,92 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
         }
         .dsh-wb-body {
           flex: 1;
+          display: flex;
           min-height: 0;
-          overflow-y: auto;
-          padding: 8px;
         }
-        .dsh-wb-pathbar {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 8px;
-          margin-bottom: 4px;
-          border-radius: 8px;
-          background: var(--dsw-alias-bg-l1);
-        }
-        .dsh-wb-path {
-          flex: 1;
-          min-width: 0;
-          overflow: hidden;
-          font-size: 12px;
-          line-height: 18px;
-          color: var(--dsw-alias-label-secondary);
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        .dsh-wb-loading {
+        .dsh-wb-explorer {
           flex: none;
-          font-size: 12px;
+          width: 168px;
+          min-width: 0;
+          overflow-y: auto;
+          border-right: 1px solid var(--dsw-alias-border-l2);
+          background: var(--dsw-alias-bg-l1);
+          padding: 4px 0;
+        }
+        .dsh-wb-explorer-header {
+          padding: 6px 10px;
+          font-size: 11px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
           color: var(--dsw-alias-label-tertiary);
         }
-        .dsh-wb-error {
-          padding: 8px 10px;
-          font-size: 12px;
-          line-height: 18px;
-          color: var(--dsw-alias-state-error-primary);
-        }
-        .dsh-wb-empty {
-          padding: 12px 10px;
-          font-size: 13px;
-          line-height: 20px;
-          color: var(--dsw-alias-label-tertiary);
-        }
-        .dsh-wb-row {
+        .dsh-wb-tree-row {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 4px;
           width: 100%;
-          min-height: 34px;
-          padding: 4px 8px;
+          min-height: 26px;
+          padding: 2px 8px 2px 8px;
           border: none;
-          border-radius: 8px;
           background: transparent;
           color: var(--dsw-alias-label-primary);
-          font-size: 13px;
-          line-height: 20px;
+          font-size: 12px;
+          line-height: 18px;
           text-align: left;
           cursor: pointer;
+          overflow: hidden;
         }
-        .dsh-wb-row:hover {
+        .dsh-wb-tree-row:hover {
           background: var(--dsw-alias-interactive-bg-hover);
         }
-        .dsh-wb-row:active {
-          background: var(--dsw-alias-interactive-bg-active);
-        }
-        .dsh-wb-row-file {
-          cursor: pointer;
-        }
-        .dsh-wb-row-file:hover {
-          background: var(--dsw-alias-interactive-bg-hover);
+        .dsh-wb-tree-arrow {
+          flex: none;
+          width: 14px;
+          color: var(--dsw-alias-label-tertiary);
+          font-size: 10px;
         }
         .dsh-wb-folder-icon {
           flex: none;
           color: var(--dsw-alias-label-secondary);
         }
-        .dsh-wb-badge {
+        .dsh-wb-tree-badge {
           flex: none;
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          min-width: 32px;
-          height: 18px;
-          padding: 0 4px;
-          border-radius: 4px;
-          font-size: 10px;
+          min-width: 22px;
+          height: 14px;
+          padding: 0 3px;
+          border-radius: 3px;
+          font-size: 8px;
           font-weight: 700;
-          line-height: 16px;
+          line-height: 14px;
         }
-        .dsh-wb-name {
+        .dsh-wb-tree-name {
           flex: 1;
           min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        .dsh-wb-size {
-          flex: none;
+        .dsh-wb-tree-loading {
+          padding: 4px 10px;
           font-size: 11px;
           color: var(--dsw-alias-label-tertiary);
+        }
+        .dsh-wb-editor {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
+          background: var(--dsw-alias-bg-base);
         }
         .dsh-wb-tabs {
           display: flex;
           align-items: stretch;
           gap: 2px;
-          padding: 6px 8px 0;
+          padding: 4px 6px 0;
           border-bottom: 1px solid var(--dsw-alias-border-l2);
           overflow-x: auto;
           background: var(--dsw-alias-bg-l2);
@@ -470,7 +687,7 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           align-items: center;
           gap: 2px;
           flex: none;
-          max-width: 150px;
+          max-width: 160px;
           height: 28px;
           padding: 0 4px 0 8px;
           border-radius: 6px 6px 0 0;
@@ -481,6 +698,16 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
         }
         .dsh-wb-tab:hover {
           background: var(--dsw-alias-interactive-bg-hover);
+        }
+        .dsh-wb-tab-active {
+          background: var(--dsw-alias-bg-base);
+          color: var(--dsw-alias-label-primary);
+        }
+        .dsh-wb-tab-explorer {
+          border: none;
+          background: transparent;
+          color: var(--dsw-alias-label-secondary);
+          cursor: pointer;
         }
         .dsh-wb-tab-label {
           flex: 1;
@@ -496,10 +723,6 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
-        }
-        .dsh-wb-tab-active {
-          background: var(--dsw-alias-bg-base);
-          color: var(--dsw-alias-label-primary);
         }
         .dsh-wb-tab-close {
           display: grid;
@@ -520,27 +743,97 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           background: var(--dsw-alias-interactive-bg-hover);
           color: var(--dsw-alias-label-primary);
         }
-        .dsh-wb-codeblock {
-          margin: 0;
+        .dsh-wb-dirty {
+          margin-left: 4px;
+          color: var(--dsw-alias-state-business-primary);
+          font-size: 10px;
         }
-        .dsh-wb-preview {
+        .dsh-wb-editor-body {
+          flex: 1;
           display: flex;
-          flex-direction: column;
-          gap: 8px;
           min-height: 0;
+          overflow: hidden;
+        }
+        .dsh-wb-gutter {
+          flex: none;
+          width: 44px;
+          overflow: hidden;
+          padding: 8px 0;
+          background: var(--dsw-alias-bg-l1);
+          border-right: 1px solid var(--dsw-alias-border-l2);
+          text-align: right;
+          user-select: none;
+        }
+        .dsh-wb-gutter-line {
+          padding: 0 8px 0 0;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          font-size: 12px;
+          line-height: 20px;
+          color: var(--dsw-alias-label-tertiary);
+        }
+        .dsh-wb-textarea {
+          flex: 1;
+          min-width: 0;
+          min-height: 0;
+          padding: 8px 12px;
+          border: none;
+          outline: none;
+          resize: none;
+          background: var(--dsw-alias-bg-base);
+          color: var(--dsw-alias-label-primary);
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          font-size: 12px;
+          line-height: 20px;
+          tab-size: 2;
+          white-space: pre;
+          overflow: auto;
+        }
+        .dsh-wb-statusbar {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex: none;
+          min-height: 22px;
+          padding: 0 10px;
+          border-top: 1px solid var(--dsw-alias-border-l2);
+          background: var(--dsw-alias-bg-l2);
+          color: var(--dsw-alias-label-secondary);
+          font-size: 11px;
+          line-height: 22px;
+          white-space: nowrap;
+          overflow: hidden;
+        }
+        .dsh-wb-status-save {
+          margin-left: auto;
+        }
+        .dsh-wb-welcome {
+          display: grid;
+          flex: 1;
+          place-items: center;
+          padding: 20px;
+          color: var(--dsw-alias-label-tertiary);
+          font-size: 13px;
+          text-align: center;
+        }
+        .dsh-wb-error {
+          padding: 8px 10px;
+          font-size: 12px;
+          line-height: 18px;
+          color: var(--dsw-alias-state-error-primary);
+        }
+        .dsh-wb-empty {
+          padding: 8px 10px;
+          font-size: 12px;
+          color: var(--dsw-alias-label-tertiary);
+        }
+        @media (max-width: 768px) {
+          .dsh-wb-explorer {
+            width: 132px;
+          }
         }
         @media (max-width: 520px) {
-          .dsh-wb-header {
-            padding: 10px 12px;
-          }
-          .dsh-wb-body {
-            padding: 6px;
-          }
-          .dsh-wb-pathbar {
-            padding: 6px;
-          }
-          .dsh-wb-row {
-            min-height: 40px;
+          .dsh-wb-explorer {
+            display: none;
           }
         }
       `}</style>
@@ -549,76 +842,43 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
           <IconFolderOpenOutline16 />
           工作区文件
         </span>
-        <button
-          type="button"
-          className="dsh-wb-close"
-          onClick={() => ctx.layout.closeDetails()}
-          aria-label="关闭工作区文件"
-        >
-          <IconCloseOutline16 size={14} />
-        </button>
-      </div>
-      {openFiles.length > 0 && (
-        <div className="dsh-wb-tabs">
-          <div className={`dsh-wb-tab ${showBrowser ? 'dsh-wb-tab-active' : ''}`}>
-            <button
-              type="button"
-              className="dsh-wb-tab-label"
-              onClick={() => setShowBrowser(true)}
-            >
-              📁 文件
-            </button>
-          </div>
-          {openFiles.map(file => (
-            <div
-              key={file.path}
-              className={`dsh-wb-tab ${activePath === file.path && !showBrowser ? 'dsh-wb-tab-active' : ''}`}
-            >
-              <button
-                type="button"
-                className="dsh-wb-tab-label"
-                onClick={() => {
-                  setActivePath(file.path)
-                  setShowBrowser(false)
-                }}
-              >
-                {file.name}
-              </button>
-              <button
-                type="button"
-                className="dsh-wb-tab-close"
-                onClick={() => closeFile(file.path)}
-                aria-label={`关闭 ${file.name}`}
-              >
-                ×
-              </button>
-            </div>
-          ))}
+        <div className="dsh-wb-header-actions">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowExplorer(previous => !previous)}
+            aria-label="切换资源管理器"
+          >
+            {showExplorer ? '隐藏资源管理器' : '显示资源管理器'}
+          </Button>
+          <button
+            type="button"
+            className="dsh-wb-close"
+            onClick={() => ctx.layout.closeDetails()}
+            aria-label="关闭工作区文件"
+          >
+            <IconCloseOutline16 size={14} />
+          </button>
         </div>
-      )}
+      </div>
       <div className="dsh-wb-body">
-        {showBrowser ? (
-          <WorkspaceFileBrowser
-            useSessions={props.useSessions}
+        {showExplorer && (
+          <WorkspaceExplorer
+            sessionId={props.sessionId}
             onOpenFile={(path, name) => void openFile(path, name)}
           />
-        ) : activeFile !== null ? (
-          <div className="dsh-wb-preview">
-            {loadingPath === activeFile.path && <div className="dsh-wb-empty">加载中…</div>}
-            {activeFile.error !== undefined && activeFile.error !== '' && (
-              <div className="dsh-wb-error">{activeFile.error}</div>
-            )}
-            {loadingPath !== activeFile.path && activeFile.error === undefined && (
-              <CodeBlock
-                className="dsh-wb-codeblock"
-                code={activeFile.content}
-                lang={langFromName(activeFile.name)}
-              />
-            )}
-          </div>
-        ) : (
-          <div className="dsh-wb-empty">打开文件后在此预览</div>
         )}
+        <EditorPane
+          files={openFiles}
+          activePath={activePath}
+          loadingPath={loadingPath}
+          savingPath={savingPath}
+          onSelect={setActivePath}
+          onClose={closeFile}
+          onChange={changeFile}
+          onSave={path => void saveFile(path)}
+          onShowExplorer={() => setShowExplorer(true)}
+        />
       </div>
     </div>
   )

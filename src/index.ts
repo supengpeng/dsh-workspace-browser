@@ -39,6 +39,7 @@ interface FsService {
   contains(parent: FsTarget, child: FsTarget): boolean
   stat(target: FsTarget, signal?: AbortSignal): Promise<{ type: string; size?: number } | undefined>
   readText(target: FsTarget, signal?: AbortSignal): Promise<string>
+  writeText(target: FsTarget, content: string, expected?: unknown, signal?: AbortSignal): Promise<unknown>
 }
 
 interface WebServerService {
@@ -151,6 +152,22 @@ function isHidden(name: string): boolean {
   return name.startsWith('.')
 }
 
+/** 读取并解析 JSON 请求体（用于写文件等 POST 接口）。 */
+async function readJson(req: IncomingMessage, cap = 1024 * 1024): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    const buffer = chunk as Buffer
+    size += buffer.length
+    if (size > cap) throw new Error(`请求体超过上限 ${cap} 字节`)
+    chunks.push(buffer)
+  }
+  const text = Buffer.concat(chunks).toString('utf8')
+  const parsed = JSON.parse(text) as unknown
+  if (typeof parsed !== 'object' || parsed === null) throw new Error('请求体必须是 JSON 对象')
+  return parsed as Record<string, unknown>
+}
+
 /**
  * 解析并校验目录列表请求，返回目标 target 与是否发生截断。
  * 供工具执行和 HTTP API 共用。
@@ -242,13 +259,25 @@ function applyWorkspaceBrowserApi(ctx: AppContext, config: Config): void {
         res.end(JSON.stringify(obj))
       }
       try {
-        if (req.method !== 'GET') {
-          return send(404, { ok: false, error: `not found: ${req.method ?? 'GET'} ${pathname}` })
-        }
-
         const sessionId = url.searchParams.get('sessionId') ?? ''
         const cwd = sessionId ? sessionCwdById(ctx, sessionId) : undefined
         const root = config.root || cwd
+
+        if (req.method === 'POST' && pathname === '/write') {
+          const body = await readJson(req)
+          const path = parsePath(String(body.path ?? ''))
+          const content = String(body.content ?? '')
+          const signal = new AbortController().signal
+          const target = await resolveListTarget(ctx, root, path, config.allowOutsideRoot, signal)
+          const info = await ctx.fs.stat(target, signal)
+          if (info?.type !== 'file') throw new Error('not a file')
+          await ctx.fs.writeText(target, content, undefined, signal)
+          return send(200, { ok: true, path: target.displayPath })
+        }
+
+        if (req.method !== 'GET') {
+          return send(404, { ok: false, error: `not found: ${req.method ?? 'GET'} ${pathname}` })
+        }
 
         if (pathname === '/read') {
           const path = parsePath(url.searchParams.get('path') ?? undefined)
