@@ -18,7 +18,14 @@ DeepSeek Harness 插件：在 Web UI 中提供接近 VS Code 的工作区文件�
 
 ### 模型工具
 
-注册一个模型可见工具 `list_workspace`：
+注册 4 个模型可见工具，方便 AI 直接操作工作区文件：
+
+- `list_workspace`：列出目录/文件；
+- `read_workspace_file`：读取文本文件内容；
+- `write_workspace_file`：创建或覆盖文本文件；
+- `edit_workspace_file`：对文件做精确的文本替换编辑。
+
+`list_workspace` 行为：
 
 - 不传 `path`：列出当前会话工作区根目录；
 - 传相对路径（如 `packages/fs`）：在工作区内向下浏览；
@@ -28,7 +35,7 @@ DeepSeek Harness 插件：在 Web UI 中提供接近 VS Code 的工作区文件�
 - 返回每个条目的名称、类型（`file` / `directory` / `other`）、显示路径、深度和文件大小；
 - 超出 `maxEntries` 时返回 `truncated: true`。
 
-实现基于 Harness 的 `ctx.fs` 服务（`resolve` / `listDir` / `contains` / `readText` / `writeText`），
+实现基于 Harness 的 `ctx.fs` 服务（`resolve` / `listDir` / `contains` / `stat` / `readText` / `writeText` / `editText`），
 不直接读取 Node fs，因此也适用于远程或沙箱文件系统后端。
 
 ## 工具参数
@@ -50,7 +57,7 @@ DeepSeek Harness 插件：在 Web UI 中提供接近 VS Code 的工作区文件�
 | `maxDepth` | `number` | `5` | 默认递归深度上限 |
 | `showHidden` | `boolean` | `false` | 默认是否显示隐藏文件/目录 |
 | `allowOutsideRoot` | `boolean` | `false` | 是否允许列出工作区根之外的绝对路径 |
-| `maxPreviewBytes` | `number` | `1048576` | Web UI 文件预览/编辑的字节上限（1 MiB） |
+| `maxPreviewBytes` | `number` | `1048576` | Web UI 与 AI 工具读取/编辑的字节上限（1 MiB） |
 
 ## 构建与注入
 
@@ -69,9 +76,9 @@ dev_inject_plugin /root/dsh-routing-suite/workspace-browser
 也可以作为 bundle 安装到 profile：
 
 ```bash
-dsh plugin --profile demo add ./dsh-external-workspace-browser-0.5.0.tgz
+dsh plugin --profile demo add ./dsh-external-workspace-browser-0.6.0.tgz
 # 或从 GitHub 安装
-dsh plugin --profile demo add github:supengpeng/dsh-workspace-browser#v0.5.0
+dsh plugin --profile demo add github:supengpeng/dsh-workspace-browser#v0.6.0
 ```
 
 ## 使用示例

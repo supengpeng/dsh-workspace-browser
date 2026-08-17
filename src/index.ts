@@ -40,6 +40,12 @@ interface FsService {
   stat(target: FsTarget, signal?: AbortSignal): Promise<{ type: string; size?: number } | undefined>
   readText(target: FsTarget, signal?: AbortSignal): Promise<string>
   writeText(target: FsTarget, content: string, expected?: unknown, signal?: AbortSignal): Promise<unknown>
+  editText(
+    target: FsTarget,
+    edit: { oldString: string; newString: string; replaceAll: boolean },
+    expected?: unknown,
+    signal?: AbortSignal,
+  ): Promise<{ before: string; after: string }>
 }
 
 interface WebServerService {
@@ -438,4 +444,129 @@ export function apply(ctx: AppContext, config: Config): void {
       }
     },
   })), '@dsh-external/workspace-browser: list_workspace')
+
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'read_workspace_file',
+    description: 'Read a UTF-8 text file from the current workspace. Fails when the file is larger than the configured preview limit.',
+    parameters: {
+      path: { type: 'string', description: 'File path relative to the workspace root, or an absolute path inside the workspace.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          path: { type: 'string', required: true },
+          content: { type: 'string', required: true },
+          size: { type: 'integer', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `<path>${value.path}</path>\n<size>${value.size}</size>\n<content>\n${value.content}\n</content>`,
+      }],
+    },
+    isConcurrencySafe: () => true,
+    async execute(args, exec) {
+      const path = parsePath(args.path)
+      const root = config.root || sessionRoot(exec)
+      const target = await resolveListTarget(ctx, root, path, config.allowOutsideRoot, exec.signal)
+      const info = await ctx.fs.stat(target, exec.signal)
+      if (info?.type !== 'file') throw new Error('not a file')
+      if (info.size !== undefined && info.size > config.maxPreviewBytes) {
+        throw new Error(`file too large (${info.size} bytes > ${config.maxPreviewBytes})`)
+      }
+      const content = await ctx.fs.readText(target, exec.signal)
+      return { path: target.displayPath, content, size: info.size ?? content.length }
+    },
+    presentCall(args): { card: 'generic'; title: string; kind: 'read'; locations: { path: string }[] } {
+      const path = parsePath(args.path)
+      return { card: 'generic', title: `Read ${path}`, kind: 'read', locations: [{ path }] }
+    },
+  })), '@dsh-external/workspace-browser: read_workspace_file')
+
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'write_workspace_file',
+    description: 'Create or overwrite a UTF-8 text file in the current workspace. The file path must stay inside the workspace root.',
+    parameters: {
+      path: { type: 'string', description: 'File path relative to the workspace root, or an absolute path inside the workspace.' },
+      content: { type: 'string', description: 'Full new file content.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ok: { type: 'boolean', required: true },
+          path: { type: 'string', required: true },
+          operation: { type: 'string', required: true, enum: ['create', 'update'] },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `<path>${value.path}</path>\n<operation>${value.operation}</operation>\n<ok>${value.ok}</ok>`,
+      }],
+    },
+    isConcurrencySafe: () => true,
+    async execute(args, exec) {
+      const path = parsePath(args.path)
+      const root = config.root || sessionRoot(exec)
+      const target = await resolveListTarget(ctx, root, path, config.allowOutsideRoot, exec.signal)
+      const info = await ctx.fs.stat(target, exec.signal)
+      const operation: 'create' | 'update' = info ? 'update' : 'create'
+      await ctx.fs.writeText(target, args.content ?? '', undefined, exec.signal)
+      return { ok: true, path: target.displayPath, operation }
+    },
+    presentCall(args): { card: 'generic'; title: string; kind: 'edit'; locations: { path: string }[] } {
+      const path = parsePath(args.path)
+      return { card: 'generic', title: `Write ${path}`, kind: 'edit', locations: [{ path }] }
+    },
+  })), '@dsh-external/workspace-browser: write_workspace_file')
+
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'edit_workspace_file',
+    description: 'Apply a literal text edit to a file in the current workspace. Use replace_all to replace every occurrence; otherwise exactly one match is required.',
+    parameters: {
+      path: { type: 'string', description: 'File path relative to the workspace root, or an absolute path inside the workspace.' },
+      old_string: { type: 'string', description: 'Literal text to replace.' },
+      new_string: { type: 'string', description: 'Replacement text. Empty string deletes the matched text.' },
+      replace_all: { type: 'boolean', description: 'Replace every match instead of requiring exactly one. Defaults to false.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ok: { type: 'boolean', required: true },
+          path: { type: 'string', required: true },
+          changed: { type: 'boolean', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `<path>${value.path}</path>\n<changed>${value.changed}</changed>\n<ok>${value.ok}</ok>`,
+      }],
+    },
+    isConcurrencySafe: () => true,
+    async execute(args, exec) {
+      const path = parsePath(args.path)
+      const root = config.root || sessionRoot(exec)
+      const target = await resolveListTarget(ctx, root, path, config.allowOutsideRoot, exec.signal)
+      const info = await ctx.fs.stat(target, exec.signal)
+      if (info?.type !== 'file') throw new Error('not a file')
+      if (info.size !== undefined && info.size > config.maxPreviewBytes) {
+        throw new Error(`file too large (${info.size} bytes > ${config.maxPreviewBytes})`)
+      }
+      const result = await ctx.fs.editText(target, {
+        oldString: args.old_string ?? '',
+        newString: args.new_string ?? '',
+        replaceAll: args.replace_all ?? false,
+      }, undefined, exec.signal)
+      return { ok: true, path: target.displayPath, changed: result.before !== result.after }
+    },
+    presentCall(args): { card: 'generic'; title: string; kind: 'edit'; locations: { path: string }[] } {
+      const path = parsePath(args.path)
+      return { card: 'generic', title: `Edit ${path}`, kind: 'edit', locations: [{ path }] }
+    },
+  })), '@dsh-external/workspace-browser: edit_workspace_file')
 }
