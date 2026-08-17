@@ -80,6 +80,7 @@ interface OpenFile {
   content: string
   originalContent: string
   error?: string
+  saveError?: string
   dirty: boolean
 }
 
@@ -404,6 +405,9 @@ function EditorPane({
           <div className="dsh-wb-error">{activeFile.error}</div>
         ) : (
           <>
+            {activeFile.saveError !== undefined && activeFile.saveError !== '' && (
+              <div className="dsh-wb-error">{activeFile.saveError}</div>
+            )}
             <div className="dsh-wb-gutter" ref={gutterRef}>
               {lineNumbers.map(line => <div key={line} className="dsh-wb-gutter-line">{line}</div>)}
             </div>
@@ -505,7 +509,7 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
   const changeFile = useCallback((path: string, content: string): void => {
     setOpenFiles(previous => previous.map(file => {
       if (file.path !== path) return file
-      return { ...file, content, dirty: content !== file.originalContent }
+      return { ...file, content, dirty: content !== file.originalContent, saveError: undefined }
     }))
   }, [])
 
@@ -523,19 +527,17 @@ function WorkspaceDetailsPanel(ctx: ClientContext, props: DetailsProps): React.R
       if (!response.ok || !data.ok) throw new Error(data.error ?? '保存失败')
       setOpenFiles(previous => previous.map(item => {
         if (item.path !== path) return item
-        return { ...item, originalContent: item.content, dirty: false }
+        return { ...item, originalContent: item.content, dirty: false, saveError: undefined }
       }))
     } catch (saveError) {
       setOpenFiles(previous => previous.map(item => {
         if (item.path !== path) return item
-        return { ...item, error: saveError instanceof Error ? saveError.message : String(saveError) }
+        return { ...item, saveError: saveError instanceof Error ? saveError.message : String(saveError) }
       }))
     } finally {
       setSavingPath(null)
     }
   }, [openFiles])
-
-  const activeFile = openFiles.find(file => file.path === activePath) ?? null
 
   return (
     <div className="dsh-wb-root">
